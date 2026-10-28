@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-28
+
 ### Added
 - `--project <folder>` on both CLI and GUI: the updater can now live anywhere and still update a chosen project folder (spec: `docs/specs/target_resolution_spec.md`)
 - `src/updater/target.py`: single injectable resolver for project root / config / venv / source, unit-tested without touching the machine
@@ -86,7 +88,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Migrated updater.py from test_matrix root to independent Updater sub-project
 
-[Unreleased]: https://github.com/lwsvincent/tm_updater/compare/updater-1.4.0...HEAD
+[Unreleased]: https://github.com/lwsvincent/tm_updater/compare/updater-1.5.0...HEAD
+[1.5.0]: https://github.com/lwsvincent/tm_updater/compare/updater-1.4.0...updater-1.5.0
 [1.4.0]: https://github.com/lwsvincent/tm_updater/compare/updater-1.3.0...updater-1.4.0
 [1.3.0]: https://github.com/lwsvincent/tm_updater/compare/updater-1.2.0...updater-1.3.0
 [1.2.0]: https://github.com/testmatrix/test-matrix/compare/updater-1.1.0...updater-1.2.0

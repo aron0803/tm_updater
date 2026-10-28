@@ -1,5 +1,23 @@
 # Change Log
 
+### [2026-10-28 17:55] 發佈 1.5.0：版號升級、重新打包、打 tag 並推到 fork
+
+- **對應規格 (Spec/Schema)**：
+  - `pyproject.toml` `[project] version = "1.5.0"`（單一版號來源；`scripts/update_version.py` 同步 `src/updater/__init__.py.__version__`）
+  - `docs/CHANGELOG.md`：`[Unreleased]` → `[1.5.0] - 2026-10-28`，補 `[1.5.0]` 比較連結
+  - SemVer：新增 `--project`、GUI 目標資料列、`get_target/set_target/choose_target_folder` API → **minor** bump（1.4.0 → 1.5.0）
+- **修改原因 (Why)**：
+  - 1.4.x 的 exe 只能待在專案目錄內，且單檔版曾被防毒封鎖；本次功能層變更需正式版本與 tag，讓發佈 repo 的成品可追溯。
+  - `git tag -l` 與 `git ls-remote --tags` 皆為空 → CHANGELOG 引用的 `updater-1.4.0` 等 tag 實際不存在，需從 `updater-1.5.0` 開始建立。
+- **解耦與修改方式 (Decoupling & How)**：
+  - 版號只改 `pyproject.toml`，由既有 `update_version.py`  propagating 到 `__init__.py`，避免多处硬寫（build 脚本已自動執行）。
+  - exe 內嵌版由 `scripts/print_version.py` → `dist\tm_version.txt` → `--product-version/--file-version`，與 `__version__` 同源。
+  - 推送目標：`origin`（`lwsvincent/tm_updater`）對 `aron0803` 為 403 唯讀，改推 `fork`（`aron0803/tm_updater`，`main` track `fork/main`），CLAUDE.md 已記錄；`gitlab` remote 尚未設定。
+- **驗證與測試 (Verification & Testing)**：
+  - `pytest`：155 passed / 7 failed（既有失敗）/ 3 skipped；`npx vitest run`：5 files / 57 passed（注意 `--reporter=basic` 在此 vitest 版本已移除，會造成 startup error）。
+  - `scripts\build_gui.bat` → exit 0；`dist\updater_gui.dist\updater_gui.exe` 14,149,120 B、`dist\onefile\updater_gui.exe` 30,464,000 B，兩版 `ProductVersion/FileVersion = 1.5.0.0`，`dist\tm_version.txt` = `1.5.0`。
+- **結果 (Result)**：1.5.0 已打 tag `updater-1.5.0` 並推送 `fork/main`；發佈 repo 的 `packages/updater*` 已換成 1.5.0 成品。未涵蓋：`origin` 寫入權限與 `gitlab` remote。
+
 ### [2026-10-28 15:45] Updater 打包：onedir + onefile 雙產物、版號寫入、防毒友善單檔
 
 - **對應規格 (Spec/Schema)**：
