@@ -1,5 +1,27 @@
 # Change Log
 
+### [2026-10-29 12:40] 1.5.1：視窗改用 Win32 真實 DPI 定位（pywebview 的度量在縮放螢幕上會跑位）
+
+- **對應規格 (Spec/Schema)**：
+  - `docs/specs/gui_folder_dialog_spec.md` §3.1 新增「位置契約」：開啟後必須在工作區內**水平+垂直置中且完整可見**；初始定位交 `create_window(screen=Screen)`、禁止自算 `x/y`；`shown` 之後由 `placement.center_on_monitor()` 用 Win32 真值重定位（`fit_and_center` 為純函式、失敗只回訊息不丟例外）
+  - 新模組 `src/updater/gui/placement.py`：`WorkArea{x,y,width,height,scale}`、`fit_and_center()`、`find_window()`、`monitor_work_area()`（含 `GetDpiForMonitor` scale）、`apply_window_rect()`（`SetWindowPos`）、`center_on_monitor()`
+  - `app.py` 新增 `WINDOW_TITLE` 常數與 `window_geometry(screens=None)`（screens 可注入）；版號 `1.5.0 → 1.5.1`（`pyproject.toml`、`src/updater/__init__.py`）
+- **修改原因 (Why)**：
+  - 現場回報「視窗開不起來/要置中」。實測（`-I` 直測 Win32）：螢幕 1920x1080 @**124%**（dpi 119），但 `webview.screens` 回報 `1920x1080, scale=1.0`，而 winforms 表單 `_scale=1.24` → 1200 視窗被放大成 **1488** 實體像素且以 x=360 起算，右緣 1933 > 1920：視窗偏右、右側被切，看起來像沒開起來。
+  - 換算單位混用是根因：`x/y` 或 `screen=` 兩種寫法都會把 pywebview 的「邏輯像素」再乘一次它自己的 scale。
+- **解耦與修改方式 (Decoupling & How)**：
+  - `placement.py` 完全不依賴 pywebview（純 ctypes）→ 可獨立測試、可在無顯示環境跑；`fit_and_center` 只做算術（logical×scale → clamp 到工作區 → 置中）。
+  - `app.py:main()` 在 `window.events.shown` 掛 `place_window()`：以 `WINDOW_TITLE` 找 hwnd → 讀工作區與有效 DPI → `SetWindowPos` 一次設定大小與位置（不用 `Window.move/resize`，它們會再乘 scale）；有調整會寫 `info` log 與 `[DEBUG]`。
+  - 保留 `create_window(screen=screen)` 作為初始位置（無 x/y），`window_geometry(screens=None)` 讓高度規則脫機測試。
+- **驗證與測試 (Verification & Testing)**：
+  - 新增 `tests/test_placement.py` 9 案例：1920x1020@1.24 時 1200x756 → **1488x937、x=216 y=41**；工作區放不下時 clamp（1366@1.5 → 1358）；多螢幕 origin 偏移；退化工作區；不存在的標題→`找不到視窗…`；壞 handle→`apply_window_rect` 回 False 不丟例外
+  - `pytest tests/ -q` → **225 passed / 7 failed（全部為 HEAD 既有失敗）/ 3 skipped**；`npx vitest run` → **66 passed**
+  - 執行期實測（`python -I measure.py "Test Matrix Updater"`，探測程式本身也設 Per-Monitor v2）：`window rect=(216,41)-(1704,978) size=1488x937`、`work area size=1920x1020 dpi=119`、`centered? dx=0 dy=-1`、`offscreen 全 0`
+  - Nuitka `scripts/build_gui.bat` 出 1.5.1：`updater_gui.dist`（onedir）與 `onefile\updater_gui.exe` 的 `ProductVersion/FileVersion = 1.5.1.0`
+- **結果 (Result)**：
+  - 視窗定位不再依賴 pywebview 的螢幕度量；在 124% 縮放的 1920x1080 面板上完整置中且不出界。
+  - 成品已部署到發佈 repo `packages/updater`（見該 repo `docs/log.md` 同日晚間那筆）。
+
 ### [2026-10-29 12:10] 目錄選擇存檔（updater_state.json）＋「還原自動」，packages 仍自動找上一層
 
 - **對應規格 (Spec/Schema)**：
