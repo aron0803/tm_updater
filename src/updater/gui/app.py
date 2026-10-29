@@ -53,6 +53,32 @@ DEFAULT_WINDOW_WIDTH = 1200
 MIN_WINDOW_SIZE = (900, 420)
 
 
+def window_geometry(
+    screens: list[webview.Screen] | None = None,
+) -> tuple[int, webview.Screen | None]:
+    """
+    Window height and the screen to open on (spec section 3.1).
+
+    ``screens`` is injectable so the rule is testable without a display; ``None``
+    means "ask pywebview".  Height follows the display (70%, clamped) so the
+    package list stays readable without swallowing the taskbar, and the returned
+    ``Screen`` is handed to ``create_window(screen=...)`` — pywebview's own way to
+    center the window on a scaled display.  ``(700, None)`` means "let the toolkit
+    decide".
+    """
+    if screens is None:
+        try:
+            screens = webview.screens
+        except Exception:
+            return 700, None
+    if not screens:
+        return 700, None
+
+    screen = screens[0]
+    height = max(500, min(1000, int(screen.height * 0.7)))
+    return height, screen
+
+
 class Api:
     def __init__(
         self,
@@ -719,47 +745,26 @@ def main() -> None:
             sys.exit(1)
         url = str(frontend_dist)
 
-    # Determine window height and position based on screen resolution
-    # (70% of screen height)
-    try:
-        screens = webview.screens
-        if screens:
-            screen = screens[0]
-            # Use 70% of screen height, but keep it within reasonable bounds
-            calculated_height = int(screen.height * 0.7)
-            target_height = max(500, min(1000, calculated_height))
-
-            # Position: Top = 3% of screen height, Horizontal = Center
-            window_width = DEFAULT_WINDOW_WIDTH
-            start_x = max(0, int((screen.width - window_width) / 2))
-            start_y = int(screen.height * 0.03)
-        else:
-            screen = None
-            target_height = 700
-            start_x = None
-            start_y = None
-    except Exception:
-        screen = None
-        target_height = 700
-        start_x = None
-        start_y = None
-
+    height, screen = window_geometry()
     if screen:
         print(
-            f"[DEBUG] Screen: {screen.width}x{screen.height}, "
-            f"Target Height: {target_height}, Position: ({start_x}, {start_y})"
+            f"[DEBUG] Screen: {screen.width}x{screen.height} (scale {screen.scale}), "
+            f"window {DEFAULT_WINDOW_WIDTH}x{height}, placement: centered on screen"
         )
     else:
-        print(f"[DEBUG] Calculated window height: {target_height}")
+        print(f"[DEBUG] Calculated window height: {height}")
 
+    # No x/y on purpose: passing `screen` lets pywebview place the window itself
+    # (winforms.py centers it in logical pixels, then scales by DPI).  Handing it
+    # our own x/y would be applied on top of that and lands off-center on scaled
+    # displays; without either it falls back to WinForms CenterScreen.
     window = webview.create_window(
         "Test Matrix Updater",
         url=url,
         js_api=api,
         width=DEFAULT_WINDOW_WIDTH,
-        height=target_height,
-        x=start_x,
-        y=start_y,
+        height=height,
+        screen=screen,
         min_size=MIN_WINDOW_SIZE,
     )
     assert window is not None, "webview.create_window returned None"

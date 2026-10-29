@@ -68,6 +68,11 @@
 - 值一律用完整路徑 + `text-overflow: ellipsis` + `title` 顯示全路徑（不再用 `shorten()` 截字）。
 - 控制列兩組：**專案**（input + 套用 + 瀏覽…）與 **packages 來源**（input + 套用 + 瀏覽…）。
 - 視窗預設寬 1200、`min_size=(900, 420)`；在最小寬度下三列仍不得重疊。
+- **位置契約**：開啟時**水平+垂直置中**於第一顆螢幕。高度 = `clamp(0.7 * screen.height, 500, 1000)`
+  （`window_geometry()`，可獨立測試）。實作只能用 `create_window(screen=Screen)` 讓 pywebview
+  自己定位（`winforms.py` 以**邏輯像素**算 centre 再乘 DPI scale）；**不得**自己算 `x/y` 傳進去 —
+  那會被再乘一次 scale，在 125%/150% 縮放下偏出螢幕。無螢幕資訊時回傳 `(700, None)`
+  → 由 WinForms `CenterScreen` 接手。
 
 ## 3.2 `Api.set_source()` / `Api.choose_source_folder()` 契約
 

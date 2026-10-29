@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-29
+
 ### Fixed
 - folder picker (`browse`) actually works on pywebview 6.2.1: `Window.create_file_dialog(webview.FileDialog.FOLDER)` instead of the removed module-level call, and a failed dialog is now reported instead of doing nothing
 - an unreadable/unreachable `source` (offline `\pnt52` share) no longer looks like "nothing to update": the source is reported with its origin and an error (spec: `target_resolution_spec.md` section 6)
@@ -19,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - target bar shows project / venv / source on separate rows; window default width 1200, minimum size 900x420
+- the window now opens centered on the screen: `create_window(screen=...)` instead of hand-computed `x/y`, which pywebview scaled a second time by DPI (off-center / off-screen on 125%–150% displays)
 - `pywebview` pinned to `==6.2.1` (was `>=5.0`)
 
 ## [1.5.0] - 2026-10-28
@@ -102,7 +105,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Migrated updater.py from test_matrix root to independent Updater sub-project
 
-[Unreleased]: https://github.com/lwsvincent/tm_updater/compare/updater-1.5.0...HEAD
+[Unreleased]: https://github.com/lwsvincent/tm_updater/compare/updater-1.5.1...HEAD
+[1.5.1]: https://github.com/lwsvincent/tm_updater/compare/updater-1.5.0...updater-1.5.1
 [1.5.0]: https://github.com/lwsvincent/tm_updater/compare/updater-1.4.0...updater-1.5.0
 [1.4.0]: https://github.com/lwsvincent/tm_updater/compare/updater-1.3.0...updater-1.4.0
 [1.3.0]: https://github.com/lwsvincent/tm_updater/compare/updater-1.2.0...updater-1.3.0

@@ -5,7 +5,8 @@ import pytest
 
 from updater.config import GuiConfig, LauncherConfig, UpdaterConfig
 from updater.core import UpdateResult
-from updater.gui.app import Api
+from updater.gui import app as app_module
+from updater.gui.app import Api, window_geometry
 from updater.gui.state import GuiState, load_state
 from updater.target import UpdateTarget
 
@@ -39,6 +40,44 @@ def api(sample_config: UpdaterConfig) -> Api:
 def api_with_python(sample_config: UpdaterConfig) -> Api:
     """Create an Api instance with a mock python_exe for testing."""
     return Api(sample_config, Path("python.exe"))
+
+
+class FakeScreen:
+    """Stand-in for webview.Screen (only the fields window_geometry reads)."""
+
+    def __init__(self, width: int, height: int, scale: float = 1.0) -> None:
+        self.width, self.height, self.scale = width, height, scale
+
+
+class TestWindowGeometry:
+    """Spec: docs/specs/gui_folder_dialog_spec.md section 3.1 (placement)."""
+
+    def test_height_follows_the_display(self) -> None:
+        height, screen = window_geometry([FakeScreen(1920, 1080)])
+        assert height == 756
+        assert screen is not None and screen.width == 1920
+
+    @pytest.mark.parametrize(
+        "height_px,expected",
+        [(1080, 756), (2160, 1000), (768, 537), (600, 500), (500, 500)],
+    )
+    def test_height_is_clamped(self, height_px: int, expected: int) -> None:
+        assert window_geometry([FakeScreen(1920, height_px)])[0] == expected
+
+    def test_no_screens_reported_falls_back(self) -> None:
+        assert window_geometry([]) == (700, None)
+
+    def test_screen_lookup_failures_are_not_fatal(self) -> None:
+        with patch("updater.gui.app.webview.screens", [], create=True):
+            assert window_geometry() == (700, None)
+
+    def test_main_does_not_position_the_window_itself(self) -> None:
+        # pywebview scales x/y by DPI itself: hand-computed coordinates land
+        # off-screen on a 125%/150% display, so placement must stay with pywebview.
+        source = Path(app_module.__file__).read_text(encoding="utf-8")
+        call = source.split("webview.create_window(", 1)[1].split(")", 1)[0]
+        assert "screen=screen" in call
+        assert "x=" not in call and "y=" not in call
 
 
 class TestGetVersions:
