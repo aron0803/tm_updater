@@ -28,6 +28,7 @@ from updater.core import (
     scan_packages,
 )
 from updater.gui.dialog import DialogUnavailable, pick_folder
+from updater.gui.placement import center_on_monitor
 from updater.gui.state import (
     GuiState,
     fallback_state_dir,
@@ -49,6 +50,7 @@ from updater.target import (
 
 # Window geometry (gui_folder_dialog_spec.md section 3.1): the target bar shows
 # three full paths on separate rows, so the default width has to fit them.
+WINDOW_TITLE = "Test Matrix Updater"
 DEFAULT_WINDOW_WIDTH = 1200
 MIN_WINDOW_SIZE = (900, 420)
 
@@ -759,7 +761,7 @@ def main() -> None:
     # our own x/y would be applied on top of that and lands off-center on scaled
     # displays; without either it falls back to WinForms CenterScreen.
     window = webview.create_window(
-        "Test Matrix Updater",
+        WINDOW_TITLE,
         url=url,
         js_api=api,
         width=DEFAULT_WINDOW_WIDTH,
@@ -769,6 +771,16 @@ def main() -> None:
     )
     assert window is not None, "webview.create_window returned None"
     api._set_window(window)
+
+    # Second pass once the window really exists: the toolkit's own placement can be
+    # wrong on driver-rotated / scaled panels, so re-center with the real monitor.
+    def place_window() -> None:
+        note = center_on_monitor(WINDOW_TITLE, DEFAULT_WINDOW_WIDTH, height)
+        if note:
+            print(f"[DEBUG] {note}")
+            api._push_log("info", f"視窗位置: {note}")
+
+    window.events.shown += place_window
 
     webview.start()
 

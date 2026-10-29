@@ -68,11 +68,20 @@
 - 值一律用完整路徑 + `text-overflow: ellipsis` + `title` 顯示全路徑（不再用 `shorten()` 截字）。
 - 控制列兩組：**專案**（input + 套用 + 瀏覽…）與 **packages 來源**（input + 套用 + 瀏覽…）。
 - 視窗預設寬 1200、`min_size=(900, 420)`；在最小寬度下三列仍不得重疊。
-- **位置契約**：開啟時**水平+垂直置中**於第一顆螢幕。高度 = `clamp(0.7 * screen.height, 500, 1000)`
-  （`window_geometry()`，可獨立測試）。實作只能用 `create_window(screen=Screen)` 讓 pywebview
-  自己定位（`winforms.py` 以**邏輯像素**算 centre 再乘 DPI scale）；**不得**自己算 `x/y` 傳進去 —
-  那會被再乘一次 scale，在 125%/150% 縮放下偏出螢幕。無螢幕資訊時回傳 `(700, None)`
-  → 由 WinForms `CenterScreen` 接手。
+- **位置契約**：視窗開啟後必須**在該螢幕的工作區內水平+垂直置中且完整可見**。
+  - 高度 = `clamp(0.7 * screen.height, 500, 1000)`（`window_geometry()`，screens 可注入、可獨立測試）；
+    無螢幕資訊時回傳 `(700, None)`。
+  - 初始定位交給 `create_window(screen=Screen)`；**不得**自己算 `x/y` 傳入（會被 pywebview 再乘一次
+    DPI scale）。
+  - **但 pywebview 的度量在縮放螢幕上不可靠**（實測 1920x1080 @124%：`webview.screens` 回報
+    `1920x1080, scale=1.0`，而 winforms 表單 `_scale=1.24` → 1200 視窗變成 1488 實體像素、
+    x=360 起算，右緣 1933 > 1920，看起來「偏右/開不起來」）。因此 `window.events.shown` 之後
+    必須由 `placement.center_on_monitor()` 用 Win32 真值重定位：
+    `MonitorFromWindow` + `GetMonitorInfoW`（工作區，實體像素）+ `GetDpiForMonitor`（有效 DPI），
+    以 `logical * scale` 換算後 clamp 到工作區再置中，最後 `SetWindowPos`（一次搞定大小與位置，
+    **不使用** `Window.move/resize`，它們會再乘一次 scale）。
+  - `fit_and_center(work, w, h)` 為純函式（工作區含 scale → 回傳 x,y,w,h），必須有單元測試；
+    任何一步失敗只回傳訊息寫 log，**不得**丟例外影響主流程。
 
 ## 3.2 `Api.set_source()` / `Api.choose_source_folder()` 契約
 
