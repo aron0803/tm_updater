@@ -1,21 +1,24 @@
 """
-Contract tests for the GUI runtime state file (updater_state.json).
+Contract tests for the GUI runtime state file (updater_state.toml).
 
 Spec: docs/specs/gui_folder_dialog_spec.md section 3.3
 """
 
 from __future__ import annotations
 
-import json
+import tomllib
 
 import pytest
 
 from updater.gui.state import (
     COMPANY_DIR,
+    LEGACY_STATE_FILENAME,
     PRODUCT_DIR,
     STATE_FILENAME,
     GuiState,
+    dump_state,
     fallback_state_dir,
+    legacy_state_files,
     load_saved_state,
     load_state,
     save_state,
@@ -29,6 +32,10 @@ class TestPaths:
     def test_state_file_sits_next_to_the_exe(self, tmp_path):
         assert state_path(tmp_path) == tmp_path / STATE_FILENAME
 
+    def test_the_state_file_is_toml(self) -> None:
+        assert STATE_FILENAME == "updater_state.toml"
+        assert LEGACY_STATE_FILENAME == "updater_state.json"
+
     def test_fallback_lives_under_localappdata(self, tmp_path, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         assert fallback_state_dir() == tmp_path / COMPANY_DIR / PRODUCT_DIR
@@ -39,6 +46,36 @@ class TestPaths:
         assert files[0] == tmp_path / "exe" / STATE_FILENAME
         assert files[1] == tmp_path / "appdata" / COMPANY_DIR / PRODUCT_DIR / STATE_FILENAME
         assert len(set(files)) == len(files)
+        assert all(p.suffix == ".toml" for p in files)
+        assert all(p.suffix == ".json" for p in legacy_state_files(tmp_path / "exe"))
+
+
+class TestTomlFormat:
+    def test_paths_stay_readable_in_toml(self) -> None:
+        text = dump_state(
+            GuiState(
+                project=r"C:\Test_Matrix",
+                source=r"\\pnt52\研發本部\packages",
+                updated_at="2026-10-29T13:00:00",
+            )
+        )
+        assert "project = 'C:\\Test_Matrix'" in text, "no doubled backslashes"
+        assert r"source = '\\pnt52\研發本部\packages'" in text
+        assert tomllib.loads(text)["project"] == r"C:\Test_Matrix"
+
+    def test_only_the_chosen_keys_are_written(self) -> None:
+        raw = tomllib.loads(dump_state(GuiState(source=r"D:\whl")))
+        assert raw["schema"] == 1
+        assert set(raw) == {"schema", "source", "updated_at"}
+
+    def test_a_value_with_a_quote_falls_back_to_a_basic_string(self) -> None:
+        path = r"D:\it's here\packages"
+        raw = tomllib.loads(dump_state(GuiState(source=path)))
+        assert raw["source"] == path
+
+    def test_a_timestamp_is_always_stamped(self) -> None:
+        raw = tomllib.loads(dump_state(GuiState(project=r"C:\Proj")))
+        assert raw["updated_at"]
 
 
 class TestLoadSave:
@@ -55,13 +92,6 @@ class TestLoadSave:
         assert state.project == r"C:\Proj"
         assert state.source == r"C:\whl"
         assert state.updated_at
-
-    def test_payload_matches_the_spec_schema(self, tmp_path):
-        path = tmp_path / STATE_FILENAME
-        save_state(path, GuiState(project=r"C:\Proj", source=None))
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        assert set(raw) == {"schema", "project", "source", "updated_at"}
-        assert raw["schema"] == 1
 
     def test_write_leaves_no_temp_file_behind(self, tmp_path):
         path = tmp_path / STATE_FILENAME
@@ -81,7 +111,7 @@ class TestLoadSave:
 
     @pytest.mark.parametrize(
         "content",
-        ["not json at all", '{"project": "C:\\\\Proj"}', "[1, 2, 3]"],
+        ["not toml at all", "schema = 2\nproject = 'C:\\Proj'", "project = C:\\Proj"],
     )
     def test_corrupt_or_foreign_file_yields_empty_state_with_a_message(
         self, tmp_path, content
@@ -95,13 +125,48 @@ class TestLoadSave:
     def test_blank_and_non_string_values_are_dropped(self, tmp_path):
         path = tmp_path / STATE_FILENAME
         path.write_text(
-            json.dumps(
-                {"schema": 1, "project": "   ", "source": 42, "updated_at": "x"}
-            ),
-            encoding="utf-8",
+            "schema = 1\nproject = '   '\nsource = 42\n", encoding="utf-8"
         )
         state, _ = load_state(path)
         assert state.is_empty()
+
+    def test_a_bom_or_cp950_file_still_reads(self, tmp_path):
+        # an operator editing the file by hand on a zh-TW machine
+        path = tmp_path / STATE_FILENAME
+        path.write_bytes("schema = 1\nsource = 'D:\\研發本部\\packages'\n".encode("cp950"))
+        state, error = load_state(path)
+        assert error == ""
+        assert state.source == r"D:\研發本部\packages"
+
+
+class TestLegacyJson:
+    def test_an_older_json_state_is_still_read(self, tmp_path):
+        path = tmp_path / LEGACY_STATE_FILENAME
+        path.write_text(
+            '{"schema": 1, "project": "C:\\\\Proj", "source": null}', encoding="utf-8"
+        )
+        state, error = load_state(path)
+        assert error == ""
+        assert state.project == r"C:\Proj"
+
+    def test_the_json_state_is_migrated_to_toml_on_the_next_save(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+        exe_dir = tmp_path / "exe"
+        exe_dir.mkdir()
+        (exe_dir / LEGACY_STATE_FILENAME).write_text(
+            '{"schema": 1, "project": null, "source": "D:\\\\whl"}', encoding="utf-8"
+        )
+
+        state, write_to, error = load_saved_state(exe_dir)
+
+        assert state.source == r"D:\whl"
+        assert write_to == exe_dir / STATE_FILENAME, "next save writes TOML"
+
+        assert save_state(write_to, state) == ""
+        assert (exe_dir / STATE_FILENAME).read_text(encoding="utf-8").startswith("#")
+        assert load_state(exe_dir / STATE_FILENAME)[0].source == r"D:\whl"
 
 
 class TestLoadSavedState:
@@ -130,7 +195,7 @@ class TestLoadSavedState:
         path = state_path(exe_dir)
         path.write_text("{ broken", encoding="utf-8")
 
-        state, write_to, error = load_saved_state(tmp_path / "exe")
+        state, write_to, error = load_saved_state(exe_dir)
         assert state.is_empty()
         assert "無法讀取" in error
         assert write_to == path

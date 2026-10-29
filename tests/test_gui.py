@@ -297,7 +297,7 @@ class TestSetSource:
             python_exe=None,
             config_origin="project",
         )
-        return Api(sample_config, None, target, state_file=tmp_path / "updater_state.json")
+        return Api(sample_config, None, target, state_file=tmp_path / "updater_state.toml")
 
     def test_switching_source_takes_effect(
         self, sample_config: UpdaterConfig, tmp_path: Path
@@ -398,7 +398,7 @@ class TestStatePersistence:
     def test_nothing_is_written_until_the_user_chooses(
         self, sample_config: UpdaterConfig, tmp_path: Path
     ) -> None:
-        state_file = tmp_path / "updater_state.json"
+        state_file = tmp_path / "updater_state.toml"
         api = self._api(sample_config, state_file)
 
         api.get_target()
@@ -411,7 +411,7 @@ class TestStatePersistence:
     def test_a_chosen_source_survives_the_restart(
         self, sample_config: UpdaterConfig, tmp_path: Path
     ) -> None:
-        state_file = tmp_path / "updater_state.json"
+        state_file = tmp_path / "updater_state.toml"
         api = self._api(sample_config, state_file)
         wheels = self._wheels(tmp_path)
 
@@ -428,7 +428,7 @@ class TestStatePersistence:
     def test_clear_target_forgets_the_project_but_keeps_the_source(
         self, sample_config: UpdaterConfig, tmp_path: Path
     ) -> None:
-        state_file = tmp_path / "updater_state.json"
+        state_file = tmp_path / "updater_state.toml"
         api = self._api(sample_config, state_file)
         wheels = self._wheels(tmp_path)
         project = tmp_path / "proj"
@@ -450,7 +450,7 @@ class TestStatePersistence:
     def test_clear_source_releases_the_automatic_chain(
         self, sample_config: UpdaterConfig, tmp_path: Path
     ) -> None:
-        state_file = tmp_path / "updater_state.json"
+        state_file = tmp_path / "updater_state.toml"
         api = self._api(sample_config, state_file)
         wheels = self._wheels(tmp_path)
         api.set_source(str(wheels))
@@ -468,7 +468,7 @@ class TestStatePersistence:
     def test_a_stale_choice_is_ignored_not_fatal(
         self, sample_config: UpdaterConfig, tmp_path: Path
     ) -> None:
-        state_file = tmp_path / "updater_state.json"
+        state_file = tmp_path / "updater_state.toml"
         stale = GuiState(project=str(tmp_path / "gone"), source=str(tmp_path / "gone-whl"))
 
         api = self._api(sample_config, state_file, state=stale)
@@ -487,13 +487,13 @@ class TestStatePersistence:
         blocked = tmp_path / "blocked"
         blocked.write_text("not a folder", encoding="utf-8")
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
-        api = self._api(sample_config, blocked / "updater_state.json")
+        api = self._api(sample_config, blocked / "updater_state.toml")
         wheels = self._wheels(tmp_path)
 
         with patch.object(api, "_push_log") as push:
             assert api.set_source(str(wheels))["error"] is None
 
-        fallback = tmp_path / "appdata" / "Test Matrix" / "Updater" / "updater_state.json"
+        fallback = tmp_path / "appdata" / "Test Matrix" / "Updater" / "updater_state.toml"
         assert fallback.exists()
         assert load_state(fallback)[0].source == str(wheels)
         assert push.call_args.args[0] == "warning"
@@ -503,7 +503,7 @@ class TestStatePersistence:
     ) -> None:
         api = self._api(
             sample_config,
-            tmp_path / "updater_state.json",
+            tmp_path / "updater_state.toml",
             state_notes=["沿用上次選擇的專案資料夾: C:\\Proj"],
         )
 

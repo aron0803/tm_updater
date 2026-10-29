@@ -55,7 +55,7 @@
         <button
           class="btn btn-small btn-reset-target"
           :disabled="busy || !store.target.project_saved"
-          title="清除已保存的專案資料夾，改回自動解析（updater_state.json）"
+          title="清除已保存的專案資料夾，改回自動解析（updater_state.toml）"
           @click="resetTarget"
         >
           還原自動
@@ -371,7 +371,7 @@ function resetSource() {
   border-color: var(--accent-blue);
 }
 
-/* secondary: only enabled when updater_state.json actually holds a choice */
+/* secondary: only enabled when updater_state.toml actually holds a choice */
 .btn-reset-target,
 .btn-reset-source {
   color: var(--text-secondary);

@@ -1,5 +1,44 @@
 # Change Log
 
+### [2026-10-29 15:35] 1.5.2：執行期狀態檔改為 TOML（`updater_state.json → updater_state.toml`）
+
+- **對應規格 (Spec/Schema)**：
+  - `docs/specs/gui_folder_dialog_spec.md` §3.3 改寫為 TOML 契約：檔名 `updater_state.toml`；
+    schema 欄位不變（`schema` / `project` / `source` / `updated_at`），但**只寫有值的欄位**
+    （該行不出現 = 該項改回自動解析）；讀取重用 `updater.config.read_toml_text()`
+    （BOM / UTF-16 / cp950 容錯，與 `updater.toml` 同一條路）；寫入端是固定 schema 的純產生器
+    `dump_state()`（標準库只有唯讀 `tomllib`，不用通用 serializer）。
+  - 相容性條文：1.5.1 的 `updater_state.json` **仍會讀**（依副檔名分流），下一次保存寫成 TOML
+    （遷移），舊檔不自動刪除。`docs/specs/target_resolution_spec.md` §3/§6 的檔名同步。
+  - `src/updater/gui/state.py`：`STATE_FILENAME="updater_state.toml"`、新增
+    `LEGACY_STATE_FILENAME`、`legacy_state_files()`、`_read_toml()`、`_toml_string()`、`dump_state()`；
+    `load_saved_state()` 回傳 `(state, write_target, error)`（舊 JSON 存在時 write_target 仍是 toml 路徑）。
+  - 版號 `1.5.1 → 1.5.2`（`pyproject.toml`、`src/updater/__init__.py`、CHANGELOG `[1.5.2]`）。
+- **修改原因 (Why)**：
+  - 使用者要求改用 toml 存放（「比較簡潔」）。JSON 對 Windows 路徑要寫雙反斜線
+    （`"C:\\Test_Matrix"`），現場人工檢查/手動改檔很吃力；TOML 是這個專案既有的格式
+    （`updater.toml`、`tomllib`），literal string 讓 `source = '\\pnt52\研發本部\packages'` 直接可讀。
+- **解耦與修改方式 (Decoupling & How)**：
+  - 格式切换只動 `state.py` 這一層（讀/寫/檔名/遷移），`Api` 與前端完全不改：
+    `Api._persist_state()` 仍只寫明確選擇的 override，`load_saved_state()` 的簽章不变。
+  - 值含單引號時退回 basic string（`json.dumps` 產生，轉義規則與 TOML 相容）；寫入仍是
+    `mkstemp` + `os.replace` 原子替換，`newline="\n"`、utf-8。
+  - 受影響檔案：`src/updater/gui/state.py`、`app.py`（註解）、`TargetBar.vue`（提示文字）、
+    `tests/test_state.py`、`tests/test_gui.py`、兩份 spec、CHANGELOG。
+- **驗證與測試 (Verification & Testing)**：
+  - `tests/test_state.py` 改寫為 TOML 契約（24 案例）：literal-string 路徑與 UNC/中文 round-trip
+    （`tomllib.loads` 驗證）、只寫有值欄位、單引號退回 basic string、缺檔不報錯、dirty TOML /
+    schema=2 / 語法錯 → 空狀態＋訊息、空字串與非字串欄位忽略、cp950 手改檔可讀、
+    `.tmp` 不殘留、舊 JSON 可讀且下次保存遷移為 TOML（`write_target` 指向 toml）、
+    `%LOCALAPPDATA%` 副本讀取後仍寫回原處。
+  - `tests/test_gui.py`：狀態檔檔名改 `.toml`（`TestStatePersistence` 7 案例語意不變）。
+  - `pytest -q` → **232 passed / 7 failed（全部為 HEAD 既有失敗）/ 3 skipped**；
+    `npx vitest run` → **66 passed**；`npm run build` OK。
+- **結果 (Result)**：
+  - 狀態檔變成人工可讀可改的 TOML，且舊部署（1.5.1 的 JSON）不需要人工搬移：下次保存自動遷移。
+  - 尚未動過目錄選擇的部署繼續走 `toml → updater 上一層含 .whl → 內建` 自動鏈（不產生狀態檔）。
+
+
 ### [2026-10-29 12:40] 1.5.1：視窗改用 Win32 真實 DPI 定位（pywebview 的度量在縮放螢幕上會跑位）
 
 - **對應規格 (Spec/Schema)**：

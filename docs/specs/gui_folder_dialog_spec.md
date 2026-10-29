@@ -95,7 +95,7 @@
 - `choose_source_folder()` 另帶 `cancelled` / `reason`，語意同 §2。
 - 成功換來源後前端必須重掃（`reloadTarget()`），因為可用版本清單來自 source。
 
-## 3.3 執行期狀態存檔（`updater_state.json`）
+## 3.3 執行期狀態存檔（`updater_state.toml`）
 
 目標專案與 packages 來源的**執行期選擇**會保存，重啟後沿用；`updater.toml` 仍是部署設定，
 兩者分工：
@@ -103,18 +103,33 @@
 | 檔案 | 職責 | 誰寫 |
 |---|---|---|
 | `updater.toml` | 部署/團隊設定（packages、venv 名稱、launcher、source） | 人工 / IT |
-| `updater_state.json` | 這台機器上次選的 `project` / `source` | GUI 自動 |
+| `updater_state.toml` | 這台機器上次選的 `project` / `source` | GUI 自動 |
 
-Schema（`schema` 欄位是版號，之後結構變更要遞增）：
+Schema（`schema` 欄位是版號，之後結構變更要遞增；1.5.2 起為 TOML，欄位不變）：
 
-```json
-{"schema": 1, "project": "C:\\Test_Matrix", "source": "C:\\...\\packages", "updated_at": "ISO8601"}
+```toml
+# Test Matrix Updater 執行期狀態（GUI 自動維護，可手動修改）
+# 沒有某個欄位 = 那一項改回自動解析（toml / updater 上一層 / 內建）
+schema = 1
+project = 'C:\Test_Matrix'
+source = '\\pnt52\研發本部\packages'
+updated_at = '2026-10-29T13:00:00'
 ```
+
+- 路徑用 TOML **literal string**（單引號，不需跳脫），Windows / UNC 路徑直接可讀；
+  值內含單引號時退回 basic string（`"..."`，由 `json.dumps` 產生，轉義規則相容）。
+- 只寫**有值**的欄位（`project` / `source` 為 `None` 時該行不出現），對映「該項改回自動」。
+- 標準庫只有 `tomllib`（唯讀），因此寫入端是**固定 schema 的產生器** `dump_state()`（純函式、
+  可單元測試），不是通用 TOML serializer；讀取端重用 `updater.config.read_toml_text()`
+  （BOM / UTF-16 / cp950 容錯，與 `updater.toml` 相同）。
+
+相容性：舊版（1.5.1）寫的 `updater_state.json` 仍會**讀取**（依副檔名分流），下一次保存寫成
+`updater_state.toml`（遷移）；舊檔不自動刪除。
 
 位置與規則：
 
-1. 首選 **exe 同層** `updater_state.json`（可攜式部署跟著資料夾走）；寫入失敗（網路碟唯讀等）
-   → 退回 `%LOCALAPPDATA%\Test Matrix\Updater\updater_state.json`，並寫 warning log。
+1. 首選 **exe 同層** `updater_state.toml`（可攜式部署跟著資料夾走）；寫入失敗（網路碟唯讀等）
+   → 退回 `%LOCALAPPDATA%\Test Matrix\Updater\updater_state.toml`，並寫 warning log。
 2. 寫入採 **tmp + `os.replace`**（不可被半截檔案破壞）；解析失敗視同無狀態，保留舊檔並記錄。
 3. 載入時機：`main()` 在解析 target 前讀取。
    - `--project` / `--source` 給定時**忽略**狀態（參數最大，見 `target_resolution_spec.md` §3、§6）。
@@ -124,11 +139,11 @@ Schema（`schema` 欄位是版號，之後結構變更要遞增）：
 5. `clear_target()` / `clear_source()`：清掉對應欄位（寫回檔）並立即回到自動解析結果；
    GUI 需有「還原自動」入口（`store.target.project_saved` / `source_saved` 為 True 時才可用）。
 6. **寫入欄位 = 明確選擇，不是解析結果**：`_persist_state()` 只寫
-   `project_override` / `source_override`。`clear_target()` 之後檔案裡的 `project` 變回
-   `null`，因此下次啟動仍走 §3 自動鏈（不會把某次自動解析到的路徑凍結進檔）。
+   `project_override` / `source_override`。`clear_target()` 之後檔案裡的 `project` 那一行消失，
+   因此下次啟動仍走 §3 自動鏈（不會把某次自動解析到的路徑凍結進檔）。
 7. `--project` / `--source` 只影響這次啟動，**不刪除**已存的選擇（下次雙擊 exe 仍沿用）。
 8. `get_target()` 另帶 `project_saved` / `source_saved`（bool）：表示該欄位目前來自
-   `updater_state.json`（或本次手動選擇），前端據此決定「還原自動」按鈕是否可點。
+   `updater_state.toml`（或本次手動選擇），前端據此決定「還原自動」按鈕是否可點。
 9. `main()` 讀檔後的事（沿用、或目錄已不存在而忽略）會以 `state_notes` 帶進 GUI log
    （第一次 scan 時輸出，與 config parse error 同一機制）。
 
@@ -146,8 +161,10 @@ Schema（`schema` 欄位是版號，之後結構變更要遞增）：
 - `tests/test_gui.py::TestChooseTargetFolder`：三種分支的輸出欄位與 `_push_log` 等級。
 - 靜態回歸：`app.py` / `dialog.py` 不得呼叫 module 層 `webview.create_file_dialog`。
 - `vitest`：`TargetBar.spec.js` 增加「dialog 無法使用時顯示可操作錯誤」案例。
-- `tests/test_state.py`（§3.3 契約）：缺檔→空狀態不報錯、dirty JSON/schema 不符→空狀態＋錯誤訊息、
+- `tests/test_state.py`（§3.3 契約）：缺檔→空狀態不報錯、dirty TOML/schema 不符→空狀態＋錯誤訊息、
+  `dump_state()` 輸出欄位與 literal-string 路徑（含 UNC / 單引號退回 basic string）、
   `save_state` 原子寫入且不留下 `.tmp` 残檔、`state_files()` 順序、`load_saved_state()` 在 exe 層無檔時
-  讀 `%LOCALAPPDATA%` 副本、`usable()` 對不存在路徑回 False。
+  讀 `%LOCALAPPDATA%` 副本、舊 `updater_state.json` 可讀且下次保存遷移為 TOML、
+  `usable()` 對不存在路徑回 False。
 - `tests/test_gui.py`：`clear_target()` 後狀態檔 `project` 為 `null`（自動解析結果不被凍結）、
   `set_source()` 後重啟（重建 Api）仍沿用該來源、`set_target()` 只寫 project 不影響 source。

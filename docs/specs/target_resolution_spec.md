@@ -27,7 +27,7 @@
 ## 3. `project_root` 解析優先序（第一命中即停止）
 
 1. **`--project`**：必須存在且為目錄，否則 `TargetError` → CLI `exit 2`、GUI 寫入 error log（不靜默）。
-1.5 **上次保存的 GUI 選擇**（`updater_state.json` 的 `project` 欄位，契約見
+1.5 **上次保存的 GUI 選擇**（`updater_state.toml` 的 `project` 欄位，契約見
    `gui_folder_dialog_spec.md` §3.3）— 僅在沒給 `--project` 時套用，且目錄仍存在才生效。
 2. **cwd 向上搜尋**（最多 4 層）：第一个含「任何 `venv_names` 目錄」或含 `updater.toml` 的祖先目錄。
 3. **`exe_dir` 鏈**（現行行為）：`exe_dir`、`exe_dir.parent` — 保證「updater 放在專案內」的舊部署不破。
@@ -55,7 +55,7 @@
 ## 6. `source`（whl 來源）解析優先序（第一命中即停止）
 
 1. **GUI 執行期設定**（`Api.set_source()` / `choose_source_folder()`）— 不寫回 toml，
-   但會存進 `updater_state.json`（見 `gui_folder_dialog_spec.md` §3.3）；用 `clear_source()`
+   但會存進 `updater_state.toml`（見 `gui_folder_dialog_spec.md` §3.3）；用 `clear_source()`
    清掉後，本層就不存在，自動鏈（含 §6.4 的 exe 上一層）重新接手。
 2. `--source`
 3. `config.source`（專案 toml → exe toml）；若為**相對路徑** → 以 `config_dir` 為基準解析

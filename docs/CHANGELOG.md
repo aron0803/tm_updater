@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-29
+
+### Changed
+- the GUI runtime state file is now **`updater_state.toml`** (was `updater_state.json`): Windows / UNC paths stay readable as literal strings (`source = '\\pnt52\...\packages'`) and it matches the format the operator already edits (`updater.toml`). A 1.5.1 JSON file is still read and is migrated to TOML on the next save (spec: `gui_folder_dialog_spec.md` section 3.3)
+
 ## [1.5.1] - 2026-10-29
 
 ### Fixed
@@ -105,7 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Migrated updater.py from test_matrix root to independent Updater sub-project
 
-[Unreleased]: https://github.com/lwsvincent/tm_updater/compare/updater-1.5.1...HEAD
+[Unreleased]: https://github.com/lwsvincent/tm_updater/compare/updater-1.5.2...HEAD
+[1.5.2]: https://github.com/lwsvincent/tm_updater/compare/updater-1.5.1...updater-1.5.2
 [1.5.1]: https://github.com/lwsvincent/tm_updater/compare/updater-1.5.0...updater-1.5.1
 [1.5.0]: https://github.com/lwsvincent/tm_updater/compare/updater-1.4.0...updater-1.5.0
 [1.4.0]: https://github.com/lwsvincent/tm_updater/compare/updater-1.3.0...updater-1.4.0

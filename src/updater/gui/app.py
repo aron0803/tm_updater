@@ -101,7 +101,7 @@ class Api:
         state = state or GuiState()
         # GUI-chosen whl folder; wins over every toml (target_resolution_spec §6.1)
         # and stays valid until changed, also across project switches.  Restored
-        # from updater_state.json when the folder still exists (spec section 3.3).
+        # from updater_state.toml when the folder still exists (spec section 3.3).
         self._source_override: str | None = state.source if usable(state.source) else None
         self._project_override: str | None = state.project if usable(state.project) else None
         self._state_file = state_file or state_path(self._exe_dir())
@@ -704,7 +704,7 @@ def main() -> None:
     # directory the legacy find_config()/find_venv_python() anchored on.
     exe_dir = Path(sys.argv[0]).resolve().parent
 
-    # Last folders chosen in the GUI (updater_state.json).  Read-only unless the
+    # Last folders chosen in the GUI (updater_state.toml).  Read-only unless the
     # user picks again; `--project` still wins over the saved value (spec 3.3.3).
     state, state_file, state_error = load_saved_state(exe_dir)
     state_notes: list[str] = []
