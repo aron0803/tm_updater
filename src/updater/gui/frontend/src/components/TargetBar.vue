@@ -97,7 +97,14 @@ async function browse() {
   error.value = ''
   try {
     const result = await window.pywebview.api.choose_target_folder()
-    if (result.cancelled) return
+    if (result.cancelled) {
+      // A dialog the backend could not open reports a reason (spec §3);
+      // a plain user cancel stays silent.
+      if (result.reason) {
+        error.value = `無法開啟資料夾對話框：${result.reason}；請手動輸入路徑後按「套用」`
+      }
+      return
+    }
     if (result.error) {
       error.value = result.error
       return

@@ -27,6 +27,7 @@ from updater.core import (
     install_updates,
     scan_packages,
 )
+from updater.gui.dialog import DialogUnavailable, pick_folder
 from updater.launcher import LauncherError, launch_executable, should_launch
 from updater.target import (
     UpdateTarget,
@@ -116,24 +117,25 @@ class Api:
         """
         Open a native folder dialog and switch the target to the choice.
 
-        Returns {"cancelled": True} when the dialog is dismissed or the backend
-        has no folder dialog support; the caller then falls back to typing a path.
+        Contract (docs/specs/gui_folder_dialog_spec.md section 2): always returns
+        {"cancelled", "reason", "error", "target"}.  A dialog that cannot be shown
+        is reported with a reason at error level - never silently swallowed - so the
+        GUI can fall back to typing a path.
         """
         start_dir = ""
         if self._target is not None:
             start_dir = str(self._target.project_root)
-        try:
-            result = webview.create_file_dialog(
-                webview.FOLDER_DIALOG, directory=start_dir
-            )
-        except Exception as exc:
-            self._push_log("debug", f"Folder dialog unavailable: {exc}")
-            return {"cancelled": True, "reason": str(exc), "target": self.get_target()}
 
-        if not result:
-            return {"cancelled": True, "target": self.get_target()}
-        chosen = result[0] if isinstance(result, (list, tuple)) else result
-        return self.set_target(str(chosen))
+        try:
+            chosen = pick_folder(self._window, start_dir)
+        except DialogUnavailable as exc:
+            reason = str(exc)
+            self._push_log("error", f"無法開啟資料夾對話框: {reason}")
+            return {"cancelled": True, "reason": reason, "target": self.get_target()}
+
+        if chosen is None:
+            return {"cancelled": True, "reason": None, "target": self.get_target()}
+        return self.set_target(chosen)
 
     def _run_with_lock(self, target_func: Callable[[], None]) -> None:
         """Spawn a daemon thread that runs target_func with lock management."""

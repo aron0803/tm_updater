@@ -22,7 +22,7 @@
 | `--project <path>` | CLI / GUI 啟動參數 | 可為絕對路徑或相對於 cwd |
 | `--venv <path>` | CLI | 覆蓋 venv 目錄（保留既有行為） |
 | `--source <path>` | CLI | 覆蓋 whl 來源 |
-| GUI 執行期選取 | `Api.select_target()` → `FOLDER_DIALOG` | 選完後整個 target 重新解析並熱替換 |
+| GUI 執行期選取 | `Api.choose_target_folder()`（對話框）/ `Api.set_target(path)`（手動輸入） | 選完後整個 target 重新解析並熱替換；對話框契約見 `gui_folder_dialog_spec.md` |
 
 ## 3. `project_root` 解析優先序（第一命中即停止）
 

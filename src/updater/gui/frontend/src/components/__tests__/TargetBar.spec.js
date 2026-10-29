@@ -87,6 +87,24 @@ describe('TargetBar.vue', () => {
     expect(reloadTarget).not.toHaveBeenCalled()
   })
 
+  it('test_browse_reports_unavailable_dialog_with_actionable_hint', async () => {
+    // 1.5.0 regression: the backend swallowed an AttributeError and the button
+    // looked dead.  A failed dialog must carry a reason (spec section 3).
+    window.pywebview.api.choose_target_folder.mockResolvedValue({
+      cancelled: true,
+      reason: "AttributeError: module 'webview' has no attribute 'create_file_dialog'",
+      target: store.target,
+    })
+    const wrapper = mountBar()
+    await wrapper.get('.btn-browse').trigger('click')
+
+    expect(wrapper.get('.target-error').text()).toContain('無法開啟資料夾對話框')
+    expect(wrapper.get('.target-error').text()).toContain('create_file_dialog')
+    expect(wrapper.get('.target-error').text()).toContain('套用')
+    expect(store.target.project).toBe('D:\\Work\\ProjA')
+    expect(reloadTarget).not.toHaveBeenCalled()
+  })
+
   it('test_browse_selecting_folder_switches_target', async () => {
     window.pywebview.api.choose_target_folder.mockResolvedValue({
       error: null,

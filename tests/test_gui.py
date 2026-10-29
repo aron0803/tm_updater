@@ -6,6 +6,7 @@ import pytest
 from updater.config import GuiConfig, LauncherConfig, UpdaterConfig
 from updater.core import UpdateResult
 from updater.gui.app import Api
+from updater.target import UpdateTarget
 
 
 @pytest.fixture
@@ -153,3 +154,90 @@ class TestInstallVersionedPackageCallsInstallUpdates:
         )
         assert statuses_arg is not None
         assert any(s.name == "test-pkg" for s in statuses_arg)
+
+
+class FakeDialogWindow:
+    """Minimal stand-in for webview.Window (pywebview 6.2.1 API)."""
+
+    def __init__(self, result=None, exc: Exception | None = None) -> None:
+        self._result = result
+        self._exc = exc
+        self.calls: list[tuple[int, str]] = []
+
+    def create_file_dialog(self, dialog_type: int, directory: str = "", **kwargs):
+        self.calls.append((dialog_type, directory))
+        if self._exc:
+            raise self._exc
+        return self._result
+
+
+class TestChooseTargetFolder:
+    """Spec: docs/specs/gui_folder_dialog_spec.md section 2."""
+
+    @staticmethod
+    def _api(sample_config: UpdaterConfig, window: object) -> Api:
+        api = Api(sample_config, None)
+        api._set_window(window)  # type: ignore[arg-type]
+        return api
+
+    def test_selected_folder_switches_target(self, sample_config: UpdaterConfig) -> None:
+        api = self._api(sample_config, FakeDialogWindow(result=(r"D:\Work\ProjB",)))
+
+        with patch.object(
+            Api, "set_target", return_value={"error": None, "target": {"project": "x"}}
+        ) as mock_set:
+            result = api.choose_target_folder()
+
+        mock_set.assert_called_once_with(r"D:\Work\ProjB")
+        assert result == {"error": None, "target": {"project": "x"}}
+
+    def test_cancel_leaves_target_untouched(self, sample_config: UpdaterConfig) -> None:
+        api = self._api(sample_config, FakeDialogWindow(result=None))
+
+        with patch.object(Api, "set_target") as mock_set:
+            result = api.choose_target_folder()
+
+        mock_set.assert_not_called()
+        assert result["cancelled"] is True
+        assert result["reason"] is None
+        assert set(result) == {"cancelled", "reason", "target"}
+
+    def test_dialog_start_dir_is_current_project(self, sample_config: UpdaterConfig) -> None:
+        target = UpdateTarget(
+            project_root=Path(r"D:\Work\ProjA"),
+            config=sample_config,
+            python_exe=None,
+            config_origin="project",
+        )
+        api = Api(sample_config, None, target)
+        window = FakeDialogWindow(result=None)
+        api._set_window(window)  # type: ignore[arg-type]
+
+        api.choose_target_folder()
+
+        assert window.calls == [(20, r"D:\Work\ProjA")]
+
+    def test_unavailable_dialog_is_logged_at_error_level(
+        self, sample_config: UpdaterConfig
+    ) -> None:
+        api = Api(sample_config, None)  # window never set -> dialog unavailable
+
+        with patch.object(api, "_push_log") as push:
+            result = api.choose_target_folder()
+
+        assert result["cancelled"] is True
+        assert result["reason"], "a failed dialog must carry a reason for the GUI"
+        assert set(result) == {"cancelled", "reason", "target"}
+        assert push.call_args.args[0] == "error"
+
+    def test_backend_failure_is_reported_as_reason(self, sample_config: UpdaterConfig) -> None:
+        api = self._api(
+            sample_config,
+            FakeDialogWindow(exc=AttributeError("no attribute 'create_file_dialog'")),
+        )
+
+        with patch.object(api, "_push_log"):
+            result = api.choose_target_folder()
+
+        assert result["cancelled"] is True
+        assert "AttributeError" in result["reason"]

@@ -1,5 +1,38 @@
 # Change Log
 
+### [2026-10-29 10:20] 修復 GUI「瀏覽…」資料夾選取失效（pywebview 6.2.1 API 漂移）＋ PyInstaller 測試版
+
+- **對應規格 (Spec/Schema)**：
+  - 新增 `docs/specs/gui_folder_dialog_spec.md`：pywebview 相依契約（只准 `Window.create_file_dialog` + `webview.FileDialog.FOLDER`；禁止 module 層 `webview.create_file_dialog` / `FOLDER_DIALOG`）、`choose_target_folder()` 輸出契約 `{cancelled, reason, error, target}`、前端四種分支行為、邊界條件與驗收項目
+  - `docs/specs/target_resolution_spec.md` §2：修正命名漂移（`Api.select_target()` → 實作的 `choose_target_folder()` / `set_target()`）
+  - `pyproject.toml`：`pywebview>=5.0` → **`pywebview==6.2.1`**（gui / dev extras），並加入 `pyinstaller>=6.0`
+- **修改原因 (Why)**：
+  - 1.5.0 實測：GUI 目標列的「瀏覽…」按了沒反應，log 出現 `AttributeError: module 'webview' has no attribute 'create_file_dialog'`。
+  - 根因：`app.py` 呼叫 **module 層** `webview.create_file_dialog(webview.FOLDER_DIALOG, ...)`；pywebview 5/6 已移除該 module 函式（6.2.1 實測 `hasattr(webview,'create_file_dialog') == False`），且 `FOLDER_DIALOG` 在 6.2 已棄用。例外被 `except` 吞掉後回傳 `{"cancelled": True}`，前端 `browse()` 見 `cancelled` 直接 return → 完全靜默。
+  - 依賴只宣告 `pywebview>=5.0`，打包時吃到新版 API 無人察覺。
+- **解耦與修改方式 (Decoupling & How)**：
+  - 新增 `src/updater/gui/dialog.py`：pywebview 相容層（SRP）。`folder_dialog_type()` 取 `FileDialog.FOLDER`（<6.2 fallback `FOLDER_DIALOG`）；`pick_folder(window, start_dir)` 接受**注入的 window**、回傳路徑或 None，無法建立對話框時丟 `DialogUnavailable`（顯式錯誤流，不吞例外）。
+  - `src/updater/gui/app.py:Api.choose_target_folder()`：改用 `pick_folder(self._window, ...)`；失敗時 `_push_log("error", ...)`（原本用 debug 等級，現場看不到）並回傳帶 `reason` 的契約欄位。
+  - `TargetBar.vue:browse()`：`cancelled && reason` → 顯示「無法開啟資料夾對話框：<reason>；請手動輸入路徑後按「套用」」；純取消仍靜默（規格 §3）。
+  - 打包：新增 `scripts/entry_gui.py`（薄 entry）與 `scripts/build_gui_pyinstaller.bat`（測試版 onedir，含 `pywebview==6.2.1` 環境閘門、不關 console 以便看錯誤）。
+    依官方文件而非試誤：PyInstaller `runtime-information` 表明 entry script 會被凍成 `__main__`（`__file__` 在 bundle 根），且 `--add-data` 目標「should mirror」套件路徑 → 故 entry 改薄啟動腳本讓 `updater.gui.app` 以 import 模組進 bundle，`--add-data` 用 `updater\guirontend\dist`。pywebview 官方 `/api/` 僅文件化 `window.create_file_dialog(...)` 與 `FileDialog.OPEN/FOLDER/SAVE`，`/guide/freezing` 建議 Windows 用 pyinstaller + `--add-data` 並 exclude 多餘後端。
+- **驗證與測試 (Verification & Testing)**：
+  - 根因重現：`.venv/Scripts/python.exe`（pywebview 6.2.1）呼叫 module 層 API → `AttributeError: module 'webview' has no attribute 'create_file_dialog'`
+  - 安裝確認：venv 內 `pip list` = `pywebview 6.2.1`（import origin 同 venv）；`pip install --upgrade "pywebview==6.2.1"` → already satisfied（無需升級）
+  - 靜態確認：`App.vue:14/31` 掛載 `TargetBar`，成品 bundle 含 `target-bar`/`目標資料夾`/`瀏覽`/`choose_target_folder`，CSS 含 `.target-bar` → UI 有載入，坏的是後端
+  - 新測試：`tests/test_dialog.py`（12 案例：`folder_dialog_type()==20`、tuple/str/None/丟例外、`window=None`、無 `create_file_dialog`、靜態防呆不得再用 module 層 API、已裝版本必須為 6.2+）
+  - `tests/test_gui.py::TestChooseTargetFolder`（5 案例：選取→`set_target("D:\Work\ProjB")`、取消不動 target、起點目錄＝目前 project、對話框不可用→`reason` + `_push_log("error")`、後端例外→`reason`）
+  - 指令：`pytest tests/test_dialog.py tests/test_gui.py tests/test_target.py tests/test_config.py -q` → **59 passed / 2 failed**
+  - `npx vitest run` → **58 passed**（新增 `test_browse_reports_unavailable_dialog_with_actionable_hint`）
+  - 既有失敗（非本次造成，`git stash` 對照 HEAD 相同失敗）：`TestInstallVersionedPackageSetsFlag::test_install_versioned_package_sets_flag`、`TestCheckUpdatesRespectsAutoUpdateDisabled::test_do_scan_returns_early_when_flag_set`
+  - 打包煙測：PyInstaller onedir 產 `dist/pyinstaller/updater_gui/updater_gui.exe`，於 `%TEMP%` 以 `--project C:\Test_Matrix` 啟動 → 解析出 `Venv: C:\Test_Matrix\.venv`、視窗存活（PID 8492）、無 `[ERROR] Frontend not built`
+    （第一版煙測曾失敗：`--add-data` 位置錯 → 已依 PyInstaller 文件改為鏡射套件路徑後通過）
+- **結果 (Result)**：
+  - 後端與前端的對話框契約已對齊 `gui_folder_dialog_spec.md`，失敗不再靜默；pywebview 鎖在 6.2.1 且打包腳本會擋版本不符。
+  - 待现场确认：視窗實點「瀏覽…」出現原生資料夾對話框並成功切換 target（目前僅到「視窗可啟動 + 契約測試全綠」）。
+  - 成品 repo（`packages/updater*`）尚未更換：依指示本輪只修來源與測試，正式 1.5.1 仍走 Nuitka `build_gui.bat`。
+
+
 ### [2026-10-28 17:55] 發佈 1.5.0：版號升級、重新打包、打 tag 並推到 fork
 
 - **對應規格 (Spec/Schema)**：

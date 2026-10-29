@@ -26,11 +26,14 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
-    "pywebview>=5.0",
+    # 鎖死版本：6.x 移除了 module 層 webview.create_file_dialog（見
+    # docs/specs/gui_folder_dialog_spec.md §1），未鎖上限會讓打包直接吃到新版 API。
+    "pywebview==6.2.1",
 ]
 dev = [
     "nuitka>=1.0.0",
-    "pywebview>=5.0",
+    "pyinstaller>=6.0",
+    "pywebview==6.2.1",
     "pytest>=7.0.0",
     "black>=22.0.0",
     "isort>=5.10.0",
