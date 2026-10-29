@@ -170,6 +170,9 @@ class FakeDialogWindow:
             raise self._exc
         return self._result
 
+    def evaluate_js(self, script: str) -> None:  # _push_log target
+        pass
+
 
 class TestChooseTargetFolder:
     """Spec: docs/specs/gui_folder_dialog_spec.md section 2."""
@@ -241,3 +244,78 @@ class TestChooseTargetFolder:
 
         assert result["cancelled"] is True
         assert "AttributeError" in result["reason"]
+
+
+class TestSetSource:
+    """Spec: docs/specs/gui_folder_dialog_spec.md section 3.2."""
+
+    @staticmethod
+    def _api(sample_config: UpdaterConfig, tmp_path: Path) -> Api:
+        target = UpdateTarget(
+            project_root=tmp_path,
+            config=sample_config,
+            python_exe=None,
+            config_origin="project",
+        )
+        return Api(sample_config, None, target)
+
+    def test_switching_source_takes_effect(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        api = self._api(sample_config, tmp_path)
+        wheels = tmp_path / "whl"
+        (wheels / "a-1.0-py3-none-any.whl").parent.mkdir()
+        (wheels / "a-1.0-py3-none-any.whl").write_bytes(b"")
+
+        result = api.set_source(str(wheels))
+
+        assert result["error"] is None
+        assert api._source_path() == wheels
+        assert result["target"]["source"] == str(wheels)
+        assert result["target"]["source_origin"] == "gui"
+        assert result["target"]["source_error"] == ""
+
+    def test_missing_source_is_rejected_and_keeps_the_old_one(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        api = self._api(sample_config, tmp_path)
+        before = api.get_target()["source"]
+
+        result = api.set_source(str(tmp_path / "nope"))
+
+        assert result["error"], "an unusable source must be reported, not swallowed"
+        assert api._source_path() == Path(before)
+
+    def test_empty_source_is_rejected(self, sample_config: UpdaterConfig, tmp_path: Path) -> None:
+        api = self._api(sample_config, tmp_path)
+
+        result = api.set_source("   ")
+
+        assert "為空" in str(result["error"])
+
+    def test_choose_source_folder_applies_the_choice(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        api = self._api(sample_config, tmp_path)
+        wheels = tmp_path / "whl"
+        wheels.mkdir()
+        window = FakeDialogWindow(result=(str(wheels),))
+        api._set_window(window)  # type: ignore[arg-type]
+
+        result = api.choose_source_folder()
+
+        assert result.get("cancelled") is None
+        assert api._source_path() == wheels
+        assert window.calls and window.calls[0][0] == 20
+
+    def test_choose_source_folder_reports_unavailable_dialog(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        api = self._api(sample_config, tmp_path)  # no window
+
+        with patch.object(api, "_push_log") as push:
+            result = api.choose_source_folder()
+
+        assert result["cancelled"] is True
+        assert result["reason"]
+        assert push.call_args.args[0] == "error"

@@ -30,11 +30,19 @@ from updater.core import (
 from updater.gui.dialog import DialogUnavailable, pick_folder
 from updater.launcher import LauncherError, launch_executable, should_launch
 from updater.target import (
-    UpdateTarget,
+    ORIGIN_EXE,
+    SourceResolution,
     TargetError,
-    resolve_source,
+    UpdateTarget,
+    pick_source,
     resolve_target,
 )
+
+
+# Window geometry (gui_folder_dialog_spec.md section 3.1): the target bar shows
+# three full paths on separate rows, so the default width has to fit them.
+DEFAULT_WINDOW_WIDTH = 1200
+MIN_WINDOW_SIZE = (900, 420)
 
 
 class Api:
@@ -51,15 +59,37 @@ class Api:
         self._update_lock = threading.Lock()
         self._auto_update_disabled = False
         self._config_error_logged = False
+        # GUI-chosen whl folder; wins over every toml (target_resolution_spec §6.1)
+        # and stays valid until changed, also across project switches.
+        self._source_override: str | None = None
 
     def _set_window(self, window: webview.Window) -> None:
         self._window = window
 
     # --- target (folder to update) -------------------------------------
 
+    def _exe_dir(self) -> Path:
+        return Path(sys.argv[0]).resolve().parent
+
+    def _source_resolution(self, probe: bool = False) -> SourceResolution:
+        """
+        Resolve the whl source.  ``probe`` additionally checks reachability -
+        worth an explicit call only where the result is reported, because an
+        offline UNC share costs a few seconds in ``Path.exists()``.
+        """
+        return pick_source(
+            self._config,
+            exe_dir=self._exe_dir(),
+            override_source=self._source_override,
+            config_origin=(
+                self._target.config_origin if self._target is not None else ORIGIN_EXE
+            ),
+            cwd=Path.cwd(),
+            probe=probe,
+        )
+
     def _source_path(self) -> Path:
-        """whl source directory, resolved per target_resolution_spec section 6."""
-        return resolve_source(self._config)
+        return self._source_resolution().path
 
     def _apply_target(self, target: UpdateTarget) -> None:
         """Hot-swap the folder being updated and drop stale pip data."""
@@ -72,10 +102,13 @@ class Api:
 
     def get_target(self) -> dict[str, object]:
         """Current update target, for the GUI header."""
+        source = self._source_resolution(probe=True)
         base = {
             "project": "",
             "venv": "",
-            "source": str(self._source_path()),
+            "source": str(source.path),
+            "source_origin": source.origin,
+            "source_error": source.error,
             "config": str(self._config.config_dir),
             "config_origin": "",
             "config_error": self._config.parse_error,
@@ -136,6 +169,54 @@ class Api:
         if chosen is None:
             return {"cancelled": True, "reason": None, "target": self.get_target()}
         return self.set_target(chosen)
+
+    # --- source (whl / packages folder) --------------------------------
+
+    def set_source(self, source_path: str) -> dict[str, object]:
+        """
+        Point the updater at another whl folder for the rest of this run.
+
+        Contract (docs/specs/gui_folder_dialog_spec.md section 3.2):
+        {"error", "target"}; the previous source stays active on failure.
+        """
+        raw = (source_path or "").strip().strip('"')
+        if not raw:
+            return {"error": "packages 來源路徑為空", "target": self.get_target()}
+
+        resolution = pick_source(
+            self._config,
+            exe_dir=self._exe_dir(),
+            override_source=raw,
+            config_origin=(
+                self._target.config_origin if self._target is not None else ORIGIN_EXE
+            ),
+            cwd=Path.cwd(),
+            probe=True,
+        )
+        if resolution.error:
+            self._push_log("error", f"packages 來源設定失敗: {resolution.error}")
+            return {"error": resolution.error, "target": self.get_target()}
+
+        self._source_override = raw
+        clear_pip_cache()
+        self._push_log(
+            "success", f"packages 來源: {resolution.path} ({resolution.origin})"
+        )
+        return {"error": None, "target": self.get_target()}
+
+    def choose_source_folder(self) -> dict[str, object]:
+        """Native folder dialog for the whl source; contract = section 2 + 3.2."""
+        start_dir = str(self._source_path())
+        try:
+            chosen = pick_folder(self._window, start_dir)
+        except DialogUnavailable as exc:
+            reason = str(exc)
+            self._push_log("error", f"無法開啟資料夾對話框: {reason}")
+            return {"cancelled": True, "reason": reason, "target": self.get_target()}
+
+        if chosen is None:
+            return {"cancelled": True, "reason": None, "target": self.get_target()}
+        return self.set_source(chosen)
 
     def _run_with_lock(self, target_func: Callable[[], None]) -> None:
         """Spawn a daemon thread that runs target_func with lock management."""
@@ -251,8 +332,17 @@ class Api:
             )
 
         self._push_log("info", f"Test Matrix Updater GUI (v{get_version()})")
-        print(f"[DEBUG] Starting scan. Source: {self._config.source}")
-        available = scan_packages(self._source_path())
+        source = self._source_resolution(probe=True)
+        self._push_log("info", f"packages 來源: {source.path} ({source.origin})")
+        if source.error:
+            # scan_packages() returns {} for an unreadable source, which would
+            # otherwise look like "nothing to update" (offline UNC share).
+            self._push_log(
+                "error",
+                f"{source.error} — 讀不到任何 .whl，請變更上方 packages 來源",
+            )
+        print(f"[DEBUG] Starting scan. Source: {source.path} ({source.origin})")
+        available = scan_packages(source.path)
         print(f"[DEBUG] Available packages in source: {list(available.keys())}")
 
         installed_versions = get_installed_versions_batch(
@@ -537,7 +627,7 @@ def main() -> None:
             target_height = max(500, min(1000, calculated_height))
 
             # Position: Top = 3% of screen height, Horizontal = Center
-            window_width = 900
+            window_width = DEFAULT_WINDOW_WIDTH
             start_x = max(0, int((screen.width - window_width) / 2))
             start_y = int(screen.height * 0.03)
         else:
@@ -563,11 +653,11 @@ def main() -> None:
         "Test Matrix Updater",
         url=url,
         js_api=api,
-        width=900,
+        width=DEFAULT_WINDOW_WIDTH,
         height=target_height,
         x=start_x,
         y=start_y,
-        min_size=(700, 400),
+        min_size=MIN_WINDOW_SIZE,
     )
     assert window is not None, "webview.create_window returned None"
     api._set_window(window)

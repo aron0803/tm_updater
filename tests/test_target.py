@@ -9,11 +9,16 @@ from pathlib import Path
 
 import pytest
 
+from updater.config import _BUILTIN_SOURCE, load_config
 from updater.target import (
     ORIGIN_BUILTIN,
+    ORIGIN_CLI,
     ORIGIN_EXE,
+    ORIGIN_EXE_SIBLING,
+    ORIGIN_GUI,
     ORIGIN_PROJECT,
     TargetError,
+    pick_source,
     find_exe_config,
     find_project_root,
     find_target_python,
@@ -23,6 +28,8 @@ from updater.target import (
 )
 
 VENV_PY = Path("venv") / "Scripts" / "python.exe"
+# UNC on purpose: it must survive the anchoring check untouched (spec section 6).
+UNC_SOURCE = "\\\\pnt52\\packages"
 
 
 def _make_project(root: Path, venv_name: str = "venv") -> Path:
@@ -288,3 +295,119 @@ class TestGuiTargetApi:
 
         assert "not found" in str(result["error"])
         assert api.get_target()["project"] == str(project.resolve())
+
+
+class TestPickSource:
+    """Spec: target_resolution_spec.md section 6 (source order + reachability)."""
+
+    @staticmethod
+    def _project(tmp_path: Path) -> Path:
+        project = tmp_path / "proj"
+        _make_project(project)
+        return project
+
+    def test_toml_source_wins_over_exe_sibling(self, tmp_path: Path) -> None:
+        exe_dir = tmp_path / "tools" / "updater"
+        exe_dir.mkdir(parents=True)
+        (exe_dir.parent / "packages").mkdir()  # exe-sibling default exists
+        project = self._project(tmp_path)
+        toml = project / "updater.toml"
+        toml.write_text(
+            f"[updater]\nsource = '{UNC_SOURCE}'\n", encoding="utf-8"
+        )
+
+        target = resolve_target(str(project), exe_dir, project)
+
+        assert target.source.path == Path(UNC_SOURCE)
+        assert target.source.origin == ORIGIN_PROJECT
+
+    def test_exe_sibling_packages_is_the_default_without_a_toml_source(
+        self, tmp_path: Path
+    ) -> None:
+        wheels = tmp_path / "packages"
+        updater_dir = wheels / "updater"
+        updater_dir.mkdir(parents=True)
+        (wheels / "am_shared-3.3.1-cp311-cp311-win_amd64.whl").write_bytes(b"")
+        project = self._project(tmp_path)
+
+        source = pick_source(
+            load_config(updater_dir / "updater.toml"),  # no toml -> builtin defaults
+            exe_dir=updater_dir,
+            cwd=project,
+        )
+
+        assert source.path == wheels
+        assert source.origin == ORIGIN_EXE_SIBLING
+        assert source.error == ""
+
+    def test_parent_without_wheels_does_not_become_the_source(self, tmp_path: Path) -> None:
+        updater_dir = tmp_path / "tools" / "updater"
+        updater_dir.mkdir(parents=True)
+        (tmp_path / "notes.txt").write_text("no wheels here", encoding="utf-8")
+
+        source = pick_source(
+            load_config(updater_dir / "updater.toml"),
+            exe_dir=updater_dir,
+            cwd=tmp_path,
+            probe=False,
+        )
+
+        assert source.origin == ORIGIN_BUILTIN
+
+    def test_builtin_used_when_no_sibling_folder(self, tmp_path: Path) -> None:
+        exe_dir = tmp_path / "tools"
+        exe_dir.mkdir()
+        source = pick_source(
+            load_config(exe_dir / "updater.toml"), exe_dir=exe_dir, cwd=tmp_path
+        )
+
+        assert source.origin == ORIGIN_BUILTIN
+        assert source.path == Path(_BUILTIN_SOURCE)
+
+    def test_gui_override_beats_toml(self, tmp_path: Path) -> None:
+        project = self._project(tmp_path)
+        (project / "updater.toml").write_text(
+            f"[updater]\nsource = '{UNC_SOURCE}'\n", encoding="utf-8"
+        )
+        config = load_config(project / "updater.toml")
+        chosen = tmp_path / "local_whl"
+        chosen.mkdir()
+
+        source = pick_source(
+            config, exe_dir=project, override_source=str(chosen), cwd=project
+        )
+
+        assert source.path == chosen
+        assert source.origin == ORIGIN_GUI
+
+    def test_cli_override_reports_cli_origin(self, tmp_path: Path) -> None:
+        config = load_config(tmp_path / "none.toml")
+        chosen = tmp_path / "whl"
+        chosen.mkdir()
+
+        source = pick_source(
+            config,
+            exe_dir=tmp_path,
+            override_source=str(chosen),
+            override_origin=ORIGIN_CLI,
+            cwd=tmp_path,
+        )
+
+        assert source.origin == ORIGIN_CLI
+
+    def test_unreachable_source_reports_an_error(self, tmp_path: Path) -> None:
+        config = load_config(tmp_path / "none.toml")
+
+        source = pick_source(config, exe_dir=tmp_path, cwd=tmp_path / "missing")
+
+        assert source.origin == ORIGIN_BUILTIN
+        assert "不可用" in source.error
+
+    def test_probe_false_skips_the_reachability_check(self, tmp_path: Path) -> None:
+        config = load_config(tmp_path / "none.toml")
+
+        source = pick_source(
+            config, exe_dir=tmp_path, cwd=tmp_path / "missing", probe=False
+        )
+
+        assert source.error == ""

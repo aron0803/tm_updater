@@ -16,6 +16,8 @@ describe('TargetBar.vue', () => {
         project: 'D:\\Work\\ProjA',
         venv: 'D:\\Work\\ProjA\\venv',
         source: '\\\\pnt52\\packages',
+        source_origin: 'project',
+        source_error: '',
         config: 'D:\\Work\\ProjA',
         config_origin: 'project',
         error: '',
@@ -26,6 +28,8 @@ describe('TargetBar.vue', () => {
       api: {
         set_target: vi.fn(),
         choose_target_folder: vi.fn(),
+        set_source: vi.fn(),
+        choose_source_folder: vi.fn(),
       },
     }
   })
@@ -151,5 +155,70 @@ describe('TargetBar.vue', () => {
     }
     const wrapper = mountBar()
     expect(wrapper.get('.target-error').text()).toContain('找不到 venv')
+  })
+
+  it('test_each_path_gets_its_own_row', () => {
+    // 1.5.0 的單列排版會讓三條長路徑糊在一起（spec §3.1）
+    const rows = mountBar().findAll('.target-row')
+    const projRow = rows.find((r) => r.text().includes('專案'))
+    const venvRow = rows.find((r) => r.text().includes('venv:'))
+    const srcRow = rows.find((r) => r.text().includes('source:'))
+
+    expect(projRow.text()).toContain('D:\\Work\\ProjA')
+    expect(projRow.text()).not.toContain('venv')
+    expect(venvRow.text()).toContain('D:\\Work\\ProjA\\venv')
+    expect(venvRow.text()).not.toContain('pnt52')
+    expect(srcRow.text()).toContain('\\\\pnt52\\packages')
+  })
+
+  it('test_set_source_switches_the_packages_folder_and_rescans', async () => {
+    window.pywebview.api.set_source.mockResolvedValue({
+      error: null,
+      target: { ...store.target, source: 'D:\\whl', source_origin: 'gui', source_error: '' },
+    })
+    const wrapper = mountBar()
+    await wrapper.get('.source-input').setValue('D:\\whl')
+    await wrapper.get('.btn-apply-source').trigger('click')
+
+    expect(window.pywebview.api.set_source).toHaveBeenCalledWith('D:\\whl')
+    expect(store.target.source).toBe('D:\\whl')
+    expect(reloadTarget).toHaveBeenCalled()
+  })
+
+  it('test_set_source_shows_error_and_keeps_old_source', async () => {
+    window.pywebview.api.set_source.mockResolvedValue({
+      error: '來源目錄不可用: D:\\nope',
+      target: store.target,
+    })
+    const wrapper = mountBar()
+    await wrapper.get('.source-input').setValue('D:\\nope')
+    await wrapper.get('.btn-apply-source').trigger('click')
+
+    expect(wrapper.get('.target-error').text()).toContain('來源目錄不可用')
+    expect(store.target.source).toBe('\\\\pnt52\\packages')
+    expect(reloadTarget).not.toHaveBeenCalled()
+  })
+
+  it('test_browse_source_uses_the_folder_dialog', async () => {
+    window.pywebview.api.choose_source_folder.mockResolvedValue({
+      error: null,
+      target: { ...store.target, source: 'E:\\whl', source_origin: 'gui' },
+    })
+    const wrapper = mountBar()
+    await wrapper.get('.btn-browse-source').trigger('click')
+
+    expect(window.pywebview.api.choose_source_folder).toHaveBeenCalled()
+    expect(store.target.source).toBe('E:\\whl')
+    expect(reloadTarget).toHaveBeenCalled()
+  })
+
+  it('test_unusable_source_from_backend_is_shown_in_the_bar', () => {
+    store.target = {
+      ...store.target,
+      source_error: '來源目錄不可用: \\\\pnt52\\packages',
+    }
+    const wrapper = mountBar()
+
+    expect(wrapper.get('.target-error').text()).toContain('來源目錄不可用')
   })
 })

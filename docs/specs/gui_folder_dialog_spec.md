@@ -54,6 +54,33 @@
 
 任何 `cancelled=True` 都**不得**觸發 `set_target`/`reloadTarget`。
 
+## 3.1 目標列版面（TargetBar 版面契約）
+
+三條路徑（專案 / venv / source）**各自一列**，不得在同一列相擠（1.5.0 的單列 flex 排版在
+路徑很長時會糊在一起）：
+
+```
+.target-bar  : grid，直欄 = [資訊列 | 控制列]
+.target-row  : grid，直欄 = [56px 標籤 | minmax(0,1fr) 值]
+               每列一笔：專案: / venv: / source: / 設定:
+```
+
+- 值一律用完整路徑 + `text-overflow: ellipsis` + `title` 顯示全路徑（不再用 `shorten()` 截字）。
+- 控制列兩組：**專案**（input + 套用 + 瀏覽…）與 **packages 來源**（input + 套用 + 瀏覽…）。
+- 視窗預設寬 1200、`min_size=(900, 420)`；在最小寬度下三列仍不得重疊。
+
+## 3.2 `Api.set_source()` / `Api.choose_source_folder()` 契約
+
+來源（whl / packages）可在執行期改，解析優先序見 `target_resolution_spec.md` §6 第 1 點。
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `error` | str \| None | 路徑不存在或不是目錄時的訊息（此时來源**不-switch**） |
+| `target` | dict | 現況，含 `source` / `source_origin` / `source_error` |
+
+- `choose_source_folder()` 另帶 `cancelled` / `reason`，語意同 §2。
+- 成功換來源後前端必須重掃（`reloadTarget()`），因為可用版本清單來自 source。
+
 ## 4. 邊界條件
 
 - `directory` 不存在：pywebview 會自行退為家目錄，不視為錯誤。

@@ -86,6 +86,10 @@ class UpdaterConfig:
     # runs on built-in defaults instead of dying (a GUI exe has no console).
     parse_error: str = ""
     encoding: str = ""
+    # "toml" when updater.toml set `source`, otherwise "builtin".
+    # target.pick_source() turns this into the full origin chain
+    # (gui | cli | project | exe | exe_sibling | builtin) for reporting.
+    source_origin: str = "builtin"
 
 
 def read_toml_text(toml_path: Path) -> tuple[str, str]:
@@ -183,6 +187,7 @@ def load_config(toml_path: Path) -> UpdaterConfig:
         config_dir=toml_path.parent.resolve(),
         parse_error=parse_error,
         encoding=encoding,
+        source_origin="toml" if "source" in updater_raw else "builtin",
     )
 
 

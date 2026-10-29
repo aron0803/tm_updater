@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- folder picker (`browse`) actually works on pywebview 6.2.1: `Window.create_file_dialog(webview.FileDialog.FOLDER)` instead of the removed module-level call, and a failed dialog is now reported instead of doing nothing
+- an unreadable/unreachable `source` (offline `\pnt52` share) no longer looks like "nothing to update": the source is reported with its origin and an error (spec: `target_resolution_spec.md` section 6)
+
+### Added
+- packages (whl) source can be changed at runtime from the GUI: `set_source()` / `choose_source_folder()`
+- default source falls back to the wheels folder one level above the updater when no updater.toml sets one (`exe_sibling`)
+- `build_gui_pyinstaller.bat` + `scripts/entry_gui.py`: PyInstaller test build with a pywebview 6.2.1 gate
+
+### Changed
+- target bar shows project / venv / source on separate rows; window default width 1200, minimum size 900x420
+- `pywebview` pinned to `==6.2.1` (was `>=5.0`)
+
 ## [1.5.0] - 2026-10-28
 
 ### Added

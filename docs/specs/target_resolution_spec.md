@@ -50,11 +50,26 @@
 找不到 → CLI 印 `[ERROR]` + `exit 1`；GUI 顯示「未找到 venv：請用 --project 或選取資料夾」，
 **不可**空白視窗無訊息。
 
-## 6. `source` 解析優先序
+## 6. `source`（whl 來源）解析優先序（第一命中即停止）
 
-1. `--source`
-2. `config.source`；若為**相對路徑** → 以 `config_dir` 為基準解析
-3. 內建 `_BUILTIN_SOURCE`
+1. **GUI 執行期設定**（`Api.set_source()` / `choose_source_folder()`）— 只影響本次執行，不寫回 toml。
+2. `--source`
+3. `config.source`（專案 toml → exe toml）；若為**相對路徑** → 以 `config_dir` 為基準解析
+4. **updater 上一層的 whl 目錄**（依序試 `exe_dir.parent`、`<exe_dir>/packages`，
+   **條件是該目錄直接含 `*.whl`**）
+   — 可攜式發佈的常態佈局是 `packages\updater\updater_gui.exe`，whl 就放在上一層的
+   `packages\`；沒有 toml 指定時這比內建網路碟更接近現場實際可用的位置。
+   要求「含 .whl」是為了避免把隨便一個上層目錄當成來源。
+5. 內建 `_BUILTIN_SOURCE`（PNT52 網路碟）
+
+`source_origin` 必須回報實際採用的那一層，值為 `gui | cli | project | exe | exe_sibling | builtin`
+（GUI 與 `--debug` 都要能看到，避免「來源指向離線網路碟卻顯示一切正常」）。
+
+**來源可用性（本次新增，不可靜默）**：解析後必須_probe_ `path.exists()`；不可用（不存在 /
+網路碟離線）時 `SourceResolution.error` 填入原因，GUI `get_target().source_error` 帶回並寫
+`error` 等級 log。理由：`scan_packages()` 對不存在的來源回傳空 dict（`core.py:108`），
+舊行為会让 GUI 看起來「All up to date」但其實一個 whl 都沒讀到（實測離線 UNC 的
+`exists()` 延遲約 2.7s 後回 False，不丟例外）。
 
 **anchored 判別（實作陷阱）**：Python 3.11 對 UNC 路徑 `\\pnt52\packages` 回傳
 `Path.is_absolute() == False` 且 `.drive == ''`，若只用 `is_absolute()` 會把網路碟當成

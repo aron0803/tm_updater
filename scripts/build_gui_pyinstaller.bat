@@ -107,6 +107,16 @@ if not exist "%PYI_DIST%\updater_gui\updater_gui.exe" (
     exit /b 1
 )
 
+rem Ship an editable updater.toml next to the exe: config lookup only searches the
+rem exe folder and two levels up, and an exe with no toml silently falls back to
+rem the built-in network share (target_resolution_spec sections 4 and 6).
+if exist "%ROOT_DIR%\updater.toml" (
+    copy /y "%ROOT_DIR%\updater.toml" "%PYI_DIST%\updater_gui\updater.toml" >nul
+    echo Copied updater.toml to %PYI_DIST%\updater_gui\updater.toml
+) else (
+    echo [WARNING] no updater.toml in %ROOT_DIR% - the exe will use built-in defaults.
+)
+
 echo.
 echo Built: %PYI_DIST%\updater_gui\updater_gui.exe
 echo Test:  "%PYI_DIST%\updater_gui\updater_gui.exe" --project C:\Test_Matrix

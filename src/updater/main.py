@@ -29,9 +29,10 @@ from updater.core import (
 )
 from updater.launcher import LauncherError, launch_executable, should_launch
 from updater.target import (
-    UpdateTarget,
+    ORIGIN_CLI,
     TargetError,
-    resolve_source,
+    UpdateTarget,
+    pick_source,
     resolve_target,
     resolve_venv_arg,
 )
@@ -96,11 +97,22 @@ def main() -> None:
     target = _resolve_cli_target(args, exe_dir)
     config = target.config
     python_exe = target.python_exe
-    source_path = Path(args.source) if args.source else resolve_source(config)
+    source = pick_source(
+        config,
+        exe_dir=exe_dir,
+        override_source=args.source,
+        override_origin=ORIGIN_CLI,
+        config_origin=target.config_origin,
+        cwd=Path.cwd(),
+        probe=True,
+    )
+    source_path = source.path
     if config.parse_error:
         print(f"[WARNING] {config.parse_error}")
 
-    print(f"Source : {source_path}")
+    print(f"Source : {source_path} ({source.origin})")
+    if source.error:
+        print(f"[WARNING] {source.error}")
     if args.dry_run:
         print("Mode   : dry-run (no changes will be made)")
     print("-" * 55)

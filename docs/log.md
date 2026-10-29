@@ -1,5 +1,33 @@
 # Change Log
 
+### [2026-10-29 11:45] 目標列分三列、視窗加寬、packages 來源可設定（並修「來源離線卻靜默」）
+
+- **對應規格 (Spec/Schema)**：
+  - `docs/specs/target_resolution_spec.md` §6 改寫為六層優先序：`gui` → `cli` → toml(project→exe) → **exe 上層 whl 目錄** → 內建 UNC；新增 `source_origin`（`gui|cli|project|exe|exe_sibling|builtin`）與「來源可用性」強制條款
+  - `docs/specs/gui_folder_dialog_spec.md` 新增 §3.1（TargetBar 版面：一條路徑一列、grid 欄位、視窗 1200 / min 900x420）與 §3.2（`set_source` / `choose_source_folder` 輸出契約）
+  - `UpdaterConfig` 新增 `source_origin` 欄位（`config.py`）；`target.py` 新增 `SourceResolution{path,origin,error}`、`exe_sibling_source()`、`pick_source()`
+- **修改原因 (Why)**：
+  - 現場回饋：GUI 目標列三條路徑糊在同一列；packages 路徑不能改；「source 指到 \\pnt52 但我沒連 PNT52 怎麼還可以用」。
+  - 實測證據：離線 UNC 的 `Path.exists() -> False`（延遲 2.70s、不丟例外），而 `core.py:108 scan_packages()` 對不存在的來源**回傳空 dict** → GUI 看起來正常、其實讀到 0 個 whl（靜默失敗）。
+  - 另一實測：exe 放在 `packages\updater\` 時**有**讀到同層 `updater.toml`（其 source 明確寫 PNT52），不是找不到 toml；但 PyInstaller 測試版在 `dist\pyinstaller\updater_gui\` 找不到 toml（搜尋範圍只有 exe 同層與上 2 層）→ 退回內建 PNT52。
+- **解耦與修改方式 (Decoupling & How)**：
+  - `target.py`：`pick_source()` 單一入口做來源解析＋可用性探測（`probe` 開關；離線 UNC 的 `exists()` 要 2~3s，只在要回報的地方探）；`exe_sibling_source()` 依序取 `exe_dir.parent`（需直接含 `*.whl`）與 `<exe_dir>/packages`；`UpdateTarget.source` 帶解析結果。
+  - `gui/app.py`：`_source_resolution()` / `set_source()` / `choose_source_folder()`；GUI 選的來源存於 `Api._source_override`（執行期覆蓋 toml）；`_do_scan()` push「packages 來源: <path> (<origin>)」與來源不可用的 error；視窗 `DEFAULT_WINDOW_WIDTH=1200`、`MIN_WINDOW_SIZE=(900,420)`。
+  - `main.py`：`--source` 改走同一個 `pick_source()`（origin 回報 `cli`），來源不可用時印 `[WARNING]`。
+  - `TargetBar.vue` 重寫版面：資訊側 4 列（專案 / venv / source / 設定，各自 `.target-row`，完整路徑 + ellipsis + title），控制側兩組（專案、packages 來源，各含 input / 套用 / 瀏覽…）；移除 `shorten()` 截字。
+  - `scripts/build_gui_pyinstaller.bat`：打包後把 `updater.toml` 複製到 exe 旁（否則測試版一律吃內建網路碟）。
+- **驗證與測試 (Verification & Testing)**：
+  - `pytest tests/ -q` → **183 passed / 7 failed（全部為 HEAD 既有失敗）/ 3 skipped**；新增 `TestPickSource` 8 案例（toml 勝過 exe 上層、上層需含 .whl、無 sibling 退回 builtin、gui/cli override 的 origin、不可用→error、`probe=False` 不探測）與 `TestSetSource` 5 案例（切換生效、不存在則不 switch、空路徑、對話框選取、對話框不可用→reason + error log）
+  - `npx vitest run` → **63 passed**；新增 `test_each_path_gets_its_own_row`（三條路徑各自一列、互不出現於對方那列）與 source 套用／失敗保留舊值／瀏覽／`source_error` 顯示 等 5 案例
+  - CLI 實測：`python src/updater/main.py --project C:\Test_Matrix --dry-run` → `Source : \\pnt52\...\packages (exe)` + `[WARNING] 來源目錄不可用: ...`（不再只說 "No .whl files"）
+  - 佈局實測：`exe_sibling_source(C:\Github\Test-Matrix_Release_whl\packages\updater)` → `...\packages`（上層含 133 個 .whl）；同址若讀到 toml 仍是 PNT52（origin `exe`）→ 要用本地 whl 需把 toml 的 `source` 改成 `'..'` 或刪掉該行
+  - PyInstaller 重打包：`dist\pyinstaller\updater_gui\updater_gui.exe` 可啟動（程序存活、無 frontend 錯誤）、已自帶 `updater.toml`
+- **結果 (Result)**：
+  - 來源解析與可用性皆有契約與測試覆蓋；GUI 會顯示來源及其決定層級，離線不再靜默成功。
+  - 待现场确认：新版 GUI 實際點擊（三列版面、1200 寬、packages 的瀏覽／套用）。
+  - 成品 repo 尚未更換；正式發佈仍走 Nuitka `build_gui.bat`（注意其 entry 是 `app.py`，資源對應與 PyInstaller 的 `entry_gui.py` 不同）。
+
+
 ### [2026-10-29 10:20] 修復 GUI「瀏覽…」資料夾選取失效（pywebview 6.2.1 API 漂移）＋ PyInstaller 測試版
 
 - **對應規格 (Spec/Schema)**：

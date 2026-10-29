@@ -1,39 +1,85 @@
 <template>
   <div class="target-bar">
     <div class="target-info">
-      <span class="target-label">目標資料夾</span>
-      <span class="target-path" :title="store.target.project || ''">
-        {{ store.target.project || '（未解析）' }}
-      </span>
-      <span class="target-meta" :title="store.target.venv || ''">
-        venv: {{ shorten(store.target.venv) || '未找到' }}
-      </span>
-      <span class="target-meta" :title="store.target.source || ''">
-        source: {{ shorten(store.target.source) }}
-      </span>
-      <span
-        v-if="store.target.config_origin"
-        class="target-origin"
-        :class="store.target.config_origin === 'project' ? 'from-project' : 'from-exe'"
-        :title="store.target.config"
-      >
-        設定: {{ store.target.config_origin }}
-      </span>
+      <div class="target-row">
+        <span class="target-label">專案:</span>
+        <span class="target-path" :title="store.target.project || ''">
+          {{ store.target.project || '（未解析）' }}
+        </span>
+      </div>
+      <div class="target-row">
+        <span class="target-label">venv:</span>
+        <span class="target-path" :title="store.target.venv || ''">
+          {{ store.target.venv || '未找到' }}
+        </span>
+      </div>
+      <div class="target-row">
+        <span class="target-label">source:</span>
+        <span class="target-path" :title="sourceTitle">
+          {{ store.target.source || '（未設定）' }}
+          <span v-if="store.target.source_origin" class="target-meta">
+            （{{ store.target.source_origin }}）
+          </span>
+        </span>
+      </div>
+      <div v-if="store.target.config_origin" class="target-row">
+        <span class="target-label">設定:</span>
+        <span
+          class="target-origin"
+          :class="store.target.config_origin === 'project' ? 'from-project' : 'from-exe'"
+          :title="store.target.config"
+        >
+          {{ store.target.config_origin }} — {{ store.target.config }}
+        </span>
+      </div>
     </div>
+
     <div class="target-controls">
-      <input
-        v-model="draft"
-        class="target-input"
-        type="text"
-        placeholder="輸入或選擇要更新的專案資料夾"
-        :title="draft"
-        @keyup.enter="apply"
-      />
-      <button class="btn btn-small" :disabled="busy || !draft" @click="apply">套用</button>
-      <button class="btn btn-small btn-browse" :disabled="busy" @click="browse">瀏覽…</button>
+      <div class="control-row">
+        <span class="control-label">專案資料夾</span>
+        <input
+          v-model="draft"
+          class="target-input"
+          type="text"
+          placeholder="要更新的專案資料夾"
+          :title="draft"
+          @keyup.enter="apply"
+        />
+        <button class="btn btn-small btn-apply" :disabled="busy || !draft" @click="apply">
+          套用
+        </button>
+        <button class="btn btn-small btn-browse" :disabled="busy" @click="browse">
+          瀏覽…
+        </button>
+      </div>
+      <div class="control-row">
+        <span class="control-label">packages 來源</span>
+        <input
+          v-model="sourceDraft"
+          class="source-input"
+          type="text"
+          placeholder="放 .whl 的資料夾"
+          :title="sourceDraft"
+          @keyup.enter="applySource"
+        />
+        <button
+          class="btn btn-small btn-apply-source"
+          :disabled="busy || !sourceDraft"
+          @click="applySource"
+        >
+          套用
+        </button>
+        <button class="btn btn-small btn-browse-source" :disabled="busy" @click="browseSource">
+          瀏覽…
+        </button>
+      </div>
     </div>
+
     <div v-if="error" class="target-error">{{ error }}</div>
     <div v-if="store.target.error" class="target-error">{{ store.target.error }}</div>
+    <div v-if="store.target.source_error" class="target-error">
+      {{ store.target.source_error }}
+    </div>
     <div v-if="store.target.config_error" class="target-error warn">
       {{ store.target.config_error }}
       <span v-if="store.target.encoding" class="target-meta">
@@ -44,14 +90,19 @@
 </template>
 
 <script setup>
-import { inject, ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 
 const store = inject('store')
 const reloadTarget = inject('reloadTarget')
 
 const draft = ref('')
+const sourceDraft = ref('')
 const busy = ref(false)
 const error = ref('')
+
+const sourceTitle = computed(
+  () => `${store.target.source || ''}\n由 ${store.target.source_origin || '未知'} 提供`
+)
 
 // Prefill once the backend reports the resolved target (arrives after mount).
 watch(
@@ -61,25 +112,27 @@ watch(
   },
   { immediate: true }
 )
+watch(
+  () => store.target.source,
+  (source) => {
+    if (!sourceDraft.value && source) sourceDraft.value = source
+  },
+  { immediate: true }
+)
 
-function shorten(path) {
-  if (!path) return ''
-  return path.length > 48 ? '…' + path.slice(-47) : path
-}
-
-async function applyPath(path) {
+async function applyPath(path, apiMethod, onApplied) {
   if (!window.pywebview) return
   busy.value = true
   error.value = ''
   try {
-    const result = await window.pywebview.api.set_target(path)
+    const result = await window.pywebview.api[apiMethod](path)
     if (result.error) {
       error.value = result.error
-    } else {
-      store.target = result.target
-      draft.value = result.target.project
-      if (reloadTarget) await reloadTarget()
+      return
     }
+    store.target = result.target
+    onApplied(result.target)
+    if (reloadTarget) await reloadTarget()
   } catch (err) {
     error.value = String(err)
   } finally {
@@ -88,21 +141,37 @@ async function applyPath(path) {
 }
 
 function apply() {
-  if (draft.value.trim()) applyPath(draft.value.trim())
+  if (draft.value.trim()) {
+    applyPath(draft.value.trim(), 'set_target', (target) => {
+      draft.value = target.project
+    })
+  }
 }
 
-async function browse() {
+function applySource() {
+  if (sourceDraft.value.trim()) {
+    applyPath(sourceDraft.value.trim(), 'set_source', (target) => {
+      sourceDraft.value = target.source
+    })
+  }
+}
+
+// A dialog the backend could not open reports a reason (spec section 3); a plain
+// user cancel stays silent.
+function handleCancelled(result) {
+  if (result.reason) {
+    error.value = `無法開啟資料夾對話框：${result.reason}；請手動輸入路徑後按「套用」`
+  }
+}
+
+async function pickFolder(apiMethod, onApplied) {
   if (!window.pywebview) return
   busy.value = true
   error.value = ''
   try {
-    const result = await window.pywebview.api.choose_target_folder()
+    const result = await window.pywebview.api[apiMethod]()
     if (result.cancelled) {
-      // A dialog the backend could not open reports a reason (spec §3);
-      // a plain user cancel stays silent.
-      if (result.reason) {
-        error.value = `無法開啟資料夾對話框：${result.reason}；請手動輸入路徑後按「套用」`
-      }
+      handleCancelled(result)
       return
     }
     if (result.error) {
@@ -110,7 +179,7 @@ async function browse() {
       return
     }
     store.target = result.target
-    draft.value = result.target.project
+    onApplied(result.target)
     if (reloadTarget) await reloadTarget()
   } catch (err) {
     error.value = String(err)
@@ -118,15 +187,30 @@ async function browse() {
     busy.value = false
   }
 }
+
+function browse() {
+  pickFolder('choose_target_folder', (target) => {
+    draft.value = target.project
+  })
+}
+
+function browseSource() {
+  pickFolder('choose_source_folder', (target) => {
+    sourceDraft.value = target.source
+  })
+}
 </script>
 
 <style scoped>
+/* Spec: docs/specs/gui_folder_dialog_spec.md section 3.1 - one row per path.
+   A grid (info | controls) with each path in its own label/value row: three long
+   paths must never run into each other, not even at the window's minimum width. */
 .target-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 16px;
+  padding: 8px 20px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border-color);
   font-size: 12px;
@@ -134,10 +218,17 @@ async function browse() {
 
 .target-info {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
-  flex: 1 1 320px;
+}
+
+.target-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
 .target-label {
@@ -152,7 +243,7 @@ async function browse() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 46vw;
+  min-width: 0;
 }
 
 .target-meta {
@@ -165,6 +256,11 @@ async function browse() {
   padding: 1px 6px;
   border-radius: 3px;
   font-size: 11px;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .from-project {
@@ -179,13 +275,28 @@ async function browse() {
 
 .target-controls {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  flex: 0 1 auto;
+  min-width: 0;
 }
 
-.target-input {
-  width: 260px;
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.control-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  width: 92px;
+  white-space: nowrap;
+}
+
+.target-input,
+.source-input {
+  width: 300px;
+  max-width: 34vw;
   padding: 4px 6px;
   border: 1px solid var(--border-color);
   border-radius: 3px;
@@ -202,14 +313,15 @@ async function browse() {
   cursor: pointer;
 }
 
-.btn-browse {
+.btn-browse,
+.btn-browse-source {
   background: var(--accent-blue);
   color: #fff;
   border-color: var(--accent-blue);
 }
 
 .target-error {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
   color: var(--accent-red);
   font-size: 12px;
 }

@@ -24,11 +24,28 @@ ORIGIN_PROJECT = "project"
 ORIGIN_EXE = "exe"
 ORIGIN_BUILTIN = "builtin"
 
+# source_origin values (target_resolution_spec section 6)
+ORIGIN_GUI = "gui"
+ORIGIN_CLI = "cli"
+ORIGIN_EXE_SIBLING = "exe_sibling"
+
+# Folder name probed one level above the exe when no updater.toml sets a source.
+EXE_SIBLING_SOURCE_DIRNAME = "packages"
+
 _VENV_SCRIPTS = ("Scripts", "python.exe")
 
 
 class TargetError(Exception):
     """Raised when an explicitly given target is unusable."""
+
+
+@dataclass(frozen=True)
+class SourceResolution:
+    """The resolved whl source, where it came from, and whether it is usable."""
+
+    path: Path
+    origin: str
+    error: str = ""
 
 
 @dataclass(frozen=True)
@@ -39,15 +56,21 @@ class UpdateTarget:
     config: UpdaterConfig
     python_exe: Path | None
     config_origin: str
+    source: SourceResolution | None = None
 
     def describe(self) -> str:
         """Human readable summary for CLI / GUI log lines."""
         venv = self.python_exe.parent.parent if self.python_exe else "not found"
+        if self.source is None:
+            source, source_error = self.config.source, ""
+        else:
+            source = f"{self.source.path} ({self.source.origin})"
+            source_error = f"\n[WARNING] {self.source.error}" if self.source.error else ""
         return (
             f"Project: {self.project_root} | "
             f"Venv: {venv} | "
             f"Config: {self.config.config_dir} ({self.config_origin}) | "
-            f"Source: {self.config.source}"
+            f"Source: {source}{source_error}"
         )
 
 
@@ -140,6 +163,65 @@ def resolve_source(config: UpdaterConfig) -> Path:
     return (config.config_dir / raw).resolve()
 
 
+def exe_sibling_source(exe_dir: Path) -> Path | None:
+    """
+    The portable-release default: the wheels live **one level above the updater**,
+    e.g. ``packages\\updater\\updater_gui.exe`` next to ``packages\\*.whl``.  Used
+    only when such a folder actually exists, so a stray exe elsewhere keeps the
+    built-in network-share default.
+
+    Two accepted shapes, in order: ``exe_dir.parent`` when it directly holds
+    ``.whl`` files, and ``<exe_dir>/packages`` when the wheels were shipped
+    inside the updater's own folder.
+    """
+    parent = exe_dir.parent
+    if parent.is_dir() and any(parent.glob("*.whl")):
+        return parent
+    sub_folder = exe_dir / EXE_SIBLING_SOURCE_DIRNAME
+    if sub_folder.is_dir() and any(sub_folder.glob("*.whl")):
+        return sub_folder
+    return None
+
+
+def pick_source(
+    config: UpdaterConfig,
+    *,
+    exe_dir: Path | None = None,
+    override_source: str | None = None,
+    override_origin: str = ORIGIN_GUI,
+    config_origin: str = ORIGIN_EXE,
+    cwd: Path | None = None,
+    probe: bool = True,
+) -> SourceResolution:
+    """
+    Apply the source resolution order of target_resolution_spec section 6 and
+    report which level won plus whether the folder is actually reachable.
+
+    The reachability probe matters: scan_packages() returns {} for a missing
+    folder (offline UNC share included), so without this the GUI happily shows
+    "All up to date" while reading zero wheels.
+    """
+    if override_source:
+        base = cwd or Path.cwd()
+        raw = override_source.strip().strip('"')
+        path = Path(raw) if _is_anchored(raw) else (base / raw)
+        origin = override_origin
+    elif config.source_origin == "toml":
+        path = resolve_source(config)
+        origin = ORIGIN_PROJECT if config_origin == ORIGIN_PROJECT else ORIGIN_EXE
+    else:
+        sibling = exe_sibling_source(exe_dir) if exe_dir is not None else None
+        if sibling is not None:
+            path, origin = sibling, ORIGIN_EXE_SIBLING
+        else:
+            path, origin = resolve_source(config), ORIGIN_BUILTIN
+
+    error = ""
+    if probe and not path.exists():
+        error = f"來源目錄不可用: {path}"
+    return SourceResolution(path=path, origin=origin, error=error)
+
+
 def find_exe_config(exe_dir: Path) -> Path:
     """
     Locate updater.toml beside the exe or up to two levels above it.
@@ -219,9 +301,14 @@ def resolve_target(
         # python_exe = <root>/<venv_name>/Scripts/python.exe
         project_root = python_exe.parents[2]
 
+    source = pick_source(
+        config, exe_dir=exe_dir, config_origin=config_origin, cwd=cwd
+    )
+
     return UpdateTarget(
         project_root=project_root,
         config=config,
         python_exe=python_exe,
         config_origin=config_origin,
+        source=source,
     )
