@@ -5,6 +5,7 @@
         <span class="target-label">專案:</span>
         <span class="target-path" :title="store.target.project || ''">
           {{ store.target.project || '（未解析）' }}
+          <span v-if="store.target.project_saved" class="target-meta">（已保存）</span>
         </span>
       </div>
       <div class="target-row">
@@ -51,6 +52,14 @@
         <button class="btn btn-small btn-browse" :disabled="busy" @click="browse">
           瀏覽…
         </button>
+        <button
+          class="btn btn-small btn-reset-target"
+          :disabled="busy || !store.target.project_saved"
+          title="清除已保存的專案資料夾，改回自動解析（updater_state.json）"
+          @click="resetTarget"
+        >
+          還原自動
+        </button>
       </div>
       <div class="control-row">
         <span class="control-label">packages 來源</span>
@@ -71,6 +80,14 @@
         </button>
         <button class="btn btn-small btn-browse-source" :disabled="busy" @click="browseSource">
           瀏覽…
+        </button>
+        <button
+          class="btn btn-small btn-reset-source"
+          :disabled="busy || !store.target.source_saved"
+          title="清除已保存的 packages 來源，改回自動解析（toml → updater 上一層 → 內建）"
+          @click="resetSource"
+        >
+          還原自動
         </button>
       </div>
     </div>
@@ -199,6 +216,40 @@ function browseSource() {
     sourceDraft.value = target.source
   })
 }
+
+// 還原自動: drop the saved choice so the automatic chain takes over again
+// (spec section 3.3.5).  The drafts follow the newly resolved values.
+async function clearOverride(apiMethod, onCleared) {
+  if (!window.pywebview) return
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await window.pywebview.api[apiMethod]()
+    if (result.error) {
+      error.value = result.error
+      return
+    }
+    store.target = result.target
+    onCleared(result.target)
+    if (reloadTarget) await reloadTarget()
+  } catch (err) {
+    error.value = String(err)
+  } finally {
+    busy.value = false
+  }
+}
+
+function resetTarget() {
+  clearOverride('clear_target', (target) => {
+    draft.value = target.project || ''
+  })
+}
+
+function resetSource() {
+  clearOverride('clear_source', (target) => {
+    sourceDraft.value = target.source || ''
+  })
+}
 </script>
 
 <style scoped>
@@ -318,6 +369,18 @@ function browseSource() {
   background: var(--accent-blue);
   color: #fff;
   border-color: var(--accent-blue);
+}
+
+/* secondary: only enabled when updater_state.json actually holds a choice */
+.btn-reset-target,
+.btn-reset-source {
+  color: var(--text-secondary);
+}
+
+.btn-reset-target:disabled,
+.btn-reset-source:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .target-error {

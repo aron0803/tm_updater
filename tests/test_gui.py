@@ -6,6 +6,7 @@ import pytest
 from updater.config import GuiConfig, LauncherConfig, UpdaterConfig
 from updater.core import UpdateResult
 from updater.gui.app import Api
+from updater.gui.state import GuiState, load_state
 from updater.target import UpdateTarget
 
 
@@ -257,7 +258,7 @@ class TestSetSource:
             python_exe=None,
             config_origin="project",
         )
-        return Api(sample_config, None, target)
+        return Api(sample_config, None, target, state_file=tmp_path / "updater_state.json")
 
     def test_switching_source_takes_effect(
         self, sample_config: UpdaterConfig, tmp_path: Path
@@ -319,3 +320,157 @@ class TestSetSource:
         assert result["cancelled"] is True
         assert result["reason"]
         assert push.call_args.args[0] == "error"
+
+
+class TestStatePersistence:
+    """Spec: docs/specs/gui_folder_dialog_spec.md section 3.3."""
+
+    @staticmethod
+    def _api(
+        sample_config: UpdaterConfig,
+        state_file: Path,
+        project_root: Path | None = None,
+        state: GuiState | None = None,
+        state_notes: list[str] | None = None,
+    ) -> Api:
+        root = project_root or Path.cwd()
+        target = UpdateTarget(
+            project_root=root,
+            config=sample_config,
+            python_exe=None,
+            config_origin="project",
+        )
+        return Api(
+            sample_config,
+            None,
+            target,
+            state=state,
+            state_file=state_file,
+            state_notes=state_notes,
+        )
+
+    @staticmethod
+    def _wheels(tmp_path: Path) -> Path:
+        wheels = tmp_path / "whl"
+        wheels.mkdir()
+        (wheels / "a-1.0-py3-none-any.whl").write_bytes(b"")
+        return wheels
+
+    def test_nothing_is_written_until_the_user_chooses(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        state_file = tmp_path / "updater_state.json"
+        api = self._api(sample_config, state_file)
+
+        api.get_target()
+
+        assert not state_file.exists(), (
+            "automatic resolution must not be frozen into the state file, or the "
+            "packages auto-discovery chain stops working for untouched deployments"
+        )
+
+    def test_a_chosen_source_survives_the_restart(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        state_file = tmp_path / "updater_state.json"
+        api = self._api(sample_config, state_file)
+        wheels = self._wheels(tmp_path)
+
+        assert api.set_source(str(wheels))["error"] is None
+        saved, error = load_state(state_file)
+        assert error == "" and saved.source == str(wheels)
+
+        # a new process: same state file, target resolved from scratch
+        restarted = self._api(sample_config, state_file, state=saved)
+        assert restarted._source_path() == wheels
+        assert restarted.get_target()["source_origin"] == "gui"
+        assert restarted.get_target()["source_saved"] is True
+
+    def test_clear_target_forgets_the_project_but_keeps_the_source(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        state_file = tmp_path / "updater_state.json"
+        api = self._api(sample_config, state_file)
+        wheels = self._wheels(tmp_path)
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        api.set_source(str(wheels))
+        assert api.set_target(str(project))["error"] is None
+        assert load_state(state_file)[0].project == str(project)
+
+        result = api.clear_target()
+
+        assert result["error"] is None
+        saved, _ = load_state(state_file)
+        assert saved.project is None, "the auto-resolved project must not be re-saved"
+        assert saved.source == str(wheels), "clearing the project keeps the source"
+        assert api.get_target()["source"] == str(wheels)
+        assert api.get_target()["project_saved"] is False
+
+    def test_clear_source_releases_the_automatic_chain(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        state_file = tmp_path / "updater_state.json"
+        api = self._api(sample_config, state_file)
+        wheels = self._wheels(tmp_path)
+        api.set_source(str(wheels))
+
+        result = api.clear_source()
+
+        assert result["error"] is None
+        assert load_state(state_file)[0].source is None
+        # back to the automatic chain: the fixture config carries no toml, so the
+        # next level below a gui override is the config/builtin fallback
+        assert api.get_target()["source_origin"] == "builtin"
+        assert api.get_target()["source"] == str(tmp_path)
+        assert api.get_target()["source_saved"] is False
+
+    def test_a_stale_choice_is_ignored_not_fatal(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        state_file = tmp_path / "updater_state.json"
+        stale = GuiState(project=str(tmp_path / "gone"), source=str(tmp_path / "gone-whl"))
+
+        api = self._api(sample_config, state_file, state=stale)
+
+        assert api._source_override is None
+        assert api._project_override is None
+        assert api.get_target()["source_saved"] is False
+        assert api._source_path() == Path(sample_config.source)
+
+    def test_read_only_exe_folder_falls_back_to_localappdata(
+        self,
+        sample_config: UpdaterConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        blocked = tmp_path / "blocked"
+        blocked.write_text("not a folder", encoding="utf-8")
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+        api = self._api(sample_config, blocked / "updater_state.json")
+        wheels = self._wheels(tmp_path)
+
+        with patch.object(api, "_push_log") as push:
+            assert api.set_source(str(wheels))["error"] is None
+
+        fallback = tmp_path / "appdata" / "Test Matrix" / "Updater" / "updater_state.json"
+        assert fallback.exists()
+        assert load_state(fallback)[0].source == str(wheels)
+        assert push.call_args.args[0] == "warning"
+
+    def test_state_notes_are_pushed_once(
+        self, sample_config: UpdaterConfig, tmp_path: Path
+    ) -> None:
+        api = self._api(
+            sample_config,
+            tmp_path / "updater_state.json",
+            state_notes=["沿用上次選擇的專案資料夾: C:\\Proj"],
+        )
+
+        with patch.object(api, "_push_log") as push:
+            api._drain_state_notes()
+            api._drain_state_notes()
+
+        assert push.call_count == 1
+        assert "沿用上次選擇的專案" in push.call_args.args[1]

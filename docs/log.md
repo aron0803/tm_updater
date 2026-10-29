@@ -1,5 +1,28 @@
 # Change Log
 
+### [2026-10-29 12:10] 目錄選擇存檔（updater_state.json）＋「還原自動」，packages 仍自動找上一層
+
+- **對應規格 (Spec/Schema)**：
+  - `docs/specs/gui_folder_dialog_spec.md` 新增 §3.3 第 5~9 點：只有**明確選擇**才寫檔（`clear_target()` 後 `project` 變回 `null`，不把自動解析結果凍結）、`--project/--source` 只影響本次啟動不刪已存選擇、`get_target()` 新增 `project_saved` / `source_saved`（bool）、啟動時的狀態判讀以 `state_notes` 進 GUI log
+  - §5 驗收新增 `tests/test_state.py` 與 `tests/test_gui.py::TestStatePersistence` 對應案例
+  - 新模組 `src/updater/gui/state.py`：`GuiState{project,source,updated_at}`、`STATE_SCHEMA=1`、`state_path()`、`fallback_state_dir()`、`state_files()`、`load_saved_state()`、`load_state()`、`save_state()`（tmp + `os.replace`）、`usable()`
+- **修改原因 (Why)**：
+  - 現場需求：「這些目錄的設定會存檔嗎？我想要存檔，又希望 packages 可以自動找上一層」。
+  - 現況两者互斥的風險：把 GUI 選的路徑寫回 `updater.toml` 會蓋掉部署設定，且一旦寫死就不再走自動鏈（`exe 上一層含 .whl` 這層失效）。
+- **解耦與修改方式 (Decoupling & How)**：
+  - 分工：`updater.toml` = 部署/團隊設定（人工）、`updater_state.json` = 這台機器上次選的資料夾（GUI 自動），兩者互不覆蓋。
+  - `state.py` 純 I/O 模組（無 webview 相依，可獨立測試）；寫入位置首選 exe 同層，失敗退回 `%LOCALAPPDATA%\Test Matrix\Updater`。
+  - `app.py:Api`：`_project_override` / `_source_override` 是「明確選擇」的單一來源；`_persist_state()` 只寫這兩個值（`set_target` / `set_source` 成功後觸發）；`clear_target()` / `clear_source()` 清欄位並立刻回到自動解析；`main()` 用 `load_saved_state()` 讀檔，`--project` 缺席且目錄仍存在才套用 `state.project`，判讀結果放 `state_notes` → 第一次 scan 時輸出（與 config parse error 同一視窗時機机制）。
+  - `set_source()` 改存**解析後的絕對路徑**（原本存 raw，相對路徑 `..` 重啟後無意義）。
+  - `TargetBar.vue`：兩列各加「還原自動」按鈕（`.btn-reset-target` / `.btn-reset-source`），`project_saved` / `source_saved` 為 False 時停用；專案路徑後顯示 `（已保存）`。
+- **驗證與測試 (Verification & Testing)**：
+  - `pytest tests/ -q` → **207 passed / 7 failed（全部為 HEAD 既有失敗）/ 3 skipped**；新增 `tests/test_state.py` 16 案例（缺檔不報錯、dirty JSON/schema 不符、不残 `.tmp`、自動建父目錄、不可寫→回報不丟例外、`state_files()` 順序、exe 層無檔時讀 `%LOCALAPPDATA%`、`usable()`）與 `TestStatePersistence` 7 案例（沒選過就不寫檔、選過的 source 重啟沿用、`clear_target` 保留 source 且 `project` 回 `null`、`clear_source` 回到自動鏈、壞路徑被忽略、exe 唯讀→退回 LOCALAPPDATA + warning、`state_notes` 只輸出一次）
+  - `npx vitest run` → **66 passed**（新增 3：未存檔時按鈕停用、`clear_source` 後 input 跟随且按鈕轉停用、`clear_target` 只清專案）
+  - PyInstaller 重打包並啟動實測：`dist\pyinstaller\updater_gui\updater_gui.exe --project C:\Test_Matrix` 程序存活；啟動後 exe 目錄與 `%LOCALAPPDATA%` **都沒有** `updater_state.json` → 未動過的使用者仍走 toml → exe 上一層 → 內建自動鏈
+- **結果 (Result)**：
+  - 「要存檔」與「packages 自動找上一層」不再互斥：存的是明確選擇，自動鏈只在沒有選擇時接手。
+  - 待现场确认：實際點擊「瀏覽…／套用／還原自動」後重開 exe，檢查是否沿用且來源顯示 `（gui）`。
+
 ### [2026-10-29 11:45] 目標列分三列、視窗加寬、packages 來源可設定（並修「來源離線卻靜默」）
 
 - **對應規格 (Spec/Schema)**：

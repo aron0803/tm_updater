@@ -21,6 +21,8 @@ describe('TargetBar.vue', () => {
         config: 'D:\\Work\\ProjA',
         config_origin: 'project',
         error: '',
+        project_saved: false,
+        source_saved: false,
       },
     })
     reloadTarget = vi.fn().mockResolvedValue({})
@@ -30,6 +32,8 @@ describe('TargetBar.vue', () => {
         choose_target_folder: vi.fn(),
         set_source: vi.fn(),
         choose_source_folder: vi.fn(),
+        clear_target: vi.fn(),
+        clear_source: vi.fn(),
       },
     }
   })
@@ -209,6 +213,50 @@ describe('TargetBar.vue', () => {
 
     expect(window.pywebview.api.choose_source_folder).toHaveBeenCalled()
     expect(store.target.source).toBe('E:\\whl')
+    expect(reloadTarget).toHaveBeenCalled()
+  })
+
+  it('test_reset_buttons_are_disabled_when_nothing_is_saved', () => {
+    // 沒選過就不該出現「還原自動」可點的狀態，否則會誤導使用者以為有存檔
+    const wrapper = mountBar()
+    expect(wrapper.get('.btn-reset-target').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.btn-reset-source').attributes('disabled')).toBeDefined()
+  })
+
+  it('test_reset_source_clears_the_saved_choice_and_refills_the_draft', async () => {
+    store.target = { ...store.target, source_saved: true, source_origin: 'gui' }
+    window.pywebview.api.clear_source.mockResolvedValue({
+      error: null,
+      target: {
+        ...store.target,
+        source: 'D:\\Work\\ProjA\\packages',
+        source_origin: 'exe_sibling',
+        source_saved: false,
+      },
+    })
+    const wrapper = mountBar()
+    await wrapper.get('.source-input').setValue('D:\\Work\\ProjA\\packages')
+    await wrapper.get('.btn-reset-source').trigger('click')
+
+    expect(window.pywebview.api.clear_source).toHaveBeenCalled()
+    expect(store.target.source_origin).toBe('exe_sibling')
+    expect(wrapper.get('.source-input').element.value).toBe('D:\\Work\\ProjA\\packages')
+    expect(wrapper.get('.btn-reset-source').attributes('disabled')).toBeDefined()
+    expect(reloadTarget).toHaveBeenCalled()
+  })
+
+  it('test_reset_target_clears_only_the_project_choice', async () => {
+    store.target = { ...store.target, project_saved: true }
+    window.pywebview.api.clear_target.mockResolvedValue({
+      error: null,
+      target: { ...store.target, project: 'D:\\Auto\\Resolved', project_saved: false },
+    })
+    const wrapper = mountBar()
+    await wrapper.get('.btn-reset-target').trigger('click')
+
+    expect(window.pywebview.api.clear_target).toHaveBeenCalled()
+    expect(store.target.project).toBe('D:\\Auto\\Resolved')
+    expect(wrapper.text()).not.toContain('已保存')
     expect(reloadTarget).toHaveBeenCalled()
   })
 

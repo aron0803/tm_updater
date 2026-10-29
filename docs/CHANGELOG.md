@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - packages (whl) source can be changed at runtime from the GUI: `set_source()` / `choose_source_folder()`
+- chosen project / packages folders are remembered in `updater_state.json` (next to the exe, falling back to `%LOCALAPPDATA%\Test Matrix\Updater`); 「還原自動」 clears a choice so the automatic chain takes over again — `updater.toml` is never overwritten, and a deployment that never picks a folder keeps `toml → wheels folder above the updater → built-in` (spec: `gui_folder_dialog_spec.md` section 3.3)
 - default source falls back to the wheels folder one level above the updater when no updater.toml sets one (`exe_sibling`)
 - `build_gui_pyinstaller.bat` + `scripts/entry_gui.py`: PyInstaller test build with a pywebview 6.2.1 gate
 

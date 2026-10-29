@@ -28,6 +28,14 @@ from updater.core import (
     scan_packages,
 )
 from updater.gui.dialog import DialogUnavailable, pick_folder
+from updater.gui.state import (
+    GuiState,
+    fallback_state_dir,
+    load_saved_state,
+    save_state,
+    state_path,
+    usable,
+)
 from updater.launcher import LauncherError, launch_executable, should_launch
 from updater.target import (
     ORIGIN_EXE,
@@ -51,6 +59,9 @@ class Api:
         config: UpdaterConfig,
         python_exe: Path | None,
         target: UpdateTarget | None = None,
+        state: GuiState | None = None,
+        state_file: Path | None = None,
+        state_notes: list[str] | None = None,
     ) -> None:
         self._config = config
         self._python_exe = python_exe
@@ -59,9 +70,17 @@ class Api:
         self._update_lock = threading.Lock()
         self._auto_update_disabled = False
         self._config_error_logged = False
+        state = state or GuiState()
         # GUI-chosen whl folder; wins over every toml (target_resolution_spec §6.1)
-        # and stays valid until changed, also across project switches.
-        self._source_override: str | None = None
+        # and stays valid until changed, also across project switches.  Restored
+        # from updater_state.json when the folder still exists (spec section 3.3).
+        self._source_override: str | None = state.source if usable(state.source) else None
+        self._project_override: str | None = state.project if usable(state.project) else None
+        self._state_file = state_file or state_path(self._exe_dir())
+        # what main() concluded while loading the state file; shown in the GUI log
+        # on the first scan, because _push_log needs a window (same trick as the
+        # config parse error)
+        self._state_notes = list(state_notes or [])
 
     def _set_window(self, window: webview.Window) -> None:
         self._window = window
@@ -100,6 +119,51 @@ class Api:
         self._auto_update_disabled = False
         self._config_error_logged = False
 
+    def _persist_state(self) -> None:
+        """
+        Remember the folders the user chose (spec section 3.3).
+
+        Only explicit choices reach this path, so untouched deployments keep the
+        automatic resolution chain.  A read-only exe folder falls back to
+        %LOCALAPPDATA% instead of failing the update.
+        """
+        # only explicit choices are stored (spec 3.3.4): an automatically resolved
+        # project_root must not be frozen into the state file
+        state = GuiState(project=self._project_override, source=self._source_override)
+        error = save_state(self._state_file, state)
+        if error:
+            fallback = fallback_state_dir() / self._state_file.name
+            error = save_state(fallback, state)
+            if error:
+                self._push_log("warning", f"狀態未保存: {error}")
+            else:
+                self._state_file = fallback
+                self._push_log("warning", f"exe 資料夾不可寫，狀態改存到 {fallback}")
+
+    def clear_source(self) -> dict[str, object]:
+        """Forget the chosen packages folder; automatic resolution takes over."""
+        self._source_override = None
+        clear_pip_cache()
+        self._persist_state()
+        self._push_log(
+            "info", "packages 來源已還原為自動（toml → updater 上一層 → 內建預設）"
+        )
+        return {"error": None, "target": self.get_target()}
+
+    def clear_target(self) -> dict[str, object]:
+        """Forget the chosen project folder; automatic resolution takes over."""
+        # a chosen packages source survives: only the project selection is cleared
+        self._project_override = None
+        exe_dir = self._exe_dir()
+        try:
+            target = resolve_target(None, exe_dir, Path.cwd())
+        except TargetError as exc:
+            return {"error": str(exc), "target": self.get_target()}
+        self._apply_target(target)
+        self._persist_state()
+        self._push_log("info", f"目標已還原為自動解析: {target.describe()}")
+        return {"error": None, "target": self.get_target()}
+
     def get_target(self) -> dict[str, object]:
         """Current update target, for the GUI header."""
         source = self._source_resolution(probe=True)
@@ -113,6 +177,10 @@ class Api:
             "config_origin": "",
             "config_error": self._config.parse_error,
             "encoding": self._config.encoding,
+            # lets the GUI show/clear the saved choices (spec 3.3.5): True means the
+            # value came from an explicit pick, so 「還原自動」 is meaningful
+            "project_saved": self._project_override is not None,
+            "source_saved": self._source_override is not None,
         }
         if self._target is None:
             base["error"] = "未解析到目標資料夾"
@@ -143,7 +211,9 @@ class Api:
             return {"error": str(exc), "target": self.get_target()}
 
         self._apply_target(target)
+        self._project_override = str(target.project_root)
         self._push_log("success", f"目標資料夾: {target.describe()}")
+        self._persist_state()
         return {"error": None, "target": self.get_target()}
 
     def choose_target_folder(self) -> dict[str, object]:
@@ -197,11 +267,14 @@ class Api:
             self._push_log("error", f"packages 來源設定失敗: {resolution.error}")
             return {"error": resolution.error, "target": self.get_target()}
 
-        self._source_override = raw
+        # store the resolved path: a relative entry ("..") would be meaningless
+        # after a restart, and pick_source keeps UNC values untouched
+        self._source_override = str(resolution.path)
         clear_pip_cache()
         self._push_log(
             "success", f"packages 來源: {resolution.path} ({resolution.origin})"
         )
+        self._persist_state()
         return {"error": None, "target": self.get_target()}
 
     def choose_source_folder(self) -> dict[str, object]:
@@ -313,7 +386,14 @@ class Api:
     def check_for_updates(self) -> None:
         self._run_with_lock(self._do_scan)
 
+    def _drain_state_notes(self) -> None:
+        """Report, once, what the state file contributed to this session."""
+        for note in self._state_notes:
+            self._push_log("info", note)
+        self._state_notes = []
+
     def _do_scan(self) -> None:
+        self._drain_state_notes()
         if self._config.parse_error and not self._config_error_logged:
             self._config_error_logged = True
             self._push_log("error", self._config.parse_error)
@@ -595,14 +675,37 @@ def main() -> None:
     # sys.argv[0] is the exe (frozen) or this script (dev); its parent is the
     # directory the legacy find_config()/find_venv_python() anchored on.
     exe_dir = Path(sys.argv[0]).resolve().parent
+
+    # Last folders chosen in the GUI (updater_state.json).  Read-only unless the
+    # user picks again; `--project` still wins over the saved value (spec 3.3.3).
+    state, state_file, state_error = load_saved_state(exe_dir)
+    state_notes: list[str] = []
+    if state_error:
+        state_notes.append(f"狀態檔問題: {state_error}")
+    project_arg = args.project
+    if project_arg is None and usable(state.project):
+        project_arg = state.project
+        state_notes.append(f"沿用上次選擇的專案資料夾: {project_arg}")
+    elif state.project and not usable(state.project):
+        state_notes.append(f"上次選擇的專案不存在，改用自動解析: {state.project}")
+    if state.source and not usable(state.source):
+        state_notes.append(f"上次選擇的 packages 不存在，改用自動解析: {state.source}")
+
     try:
-        target = resolve_target(args.project, exe_dir, Path.cwd())
+        target = resolve_target(project_arg, exe_dir, Path.cwd())
     except TargetError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(2)
 
     print(f"[DEBUG] {target.describe()}")
-    api = Api(target.config, target.python_exe, target)
+    api = Api(
+        target.config,
+        target.python_exe,
+        target,
+        state=state,
+        state_file=state_file,
+        state_notes=state_notes,
+    )
 
     if args.dev:
         url = "http://localhost:15173"
