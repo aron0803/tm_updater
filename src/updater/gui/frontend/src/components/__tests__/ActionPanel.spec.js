@@ -34,9 +34,6 @@ describe('ActionPanel.vue', () => {
     return mount(ActionPanel, { global: { provide: { store } } })
   }
 
-  // Install Selected Version button no longer exists — version selection is
-  // triggered by the dropdown in PackageTable.vue (see PackageTable.refresh.spec.js).
-
   // -------------------------------------------------------------------
   // Update All button
   // -------------------------------------------------------------------
@@ -145,6 +142,35 @@ describe('ActionPanel.vue', () => {
     const wrapper = mountPanel()
     expect(wrapper.find('.btn-primary').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('.btn-primary').text()).toContain('Check for Updates')
+  })
+
+  // -------------------------------------------------------------------
+  // Install Specified button
+  // -------------------------------------------------------------------
+
+  it('test_install_specified_button_shown_when_version_specified', () => {
+    store.packages = [{ name: 'pkg-a', installed: '2.4.9', available: '2.4.4', status: 'up_to_date' }]
+    store.selectedVersions = { 'pkg-a': '2.4.4' }
+
+    const wrapper = mountPanel()
+    const btn = wrapper.find('.btn-version')
+    expect(btn.exists()).toBe(true)
+    expect(btn.text()).toContain('Install Specified (1)')
+  })
+
+  it('test_clicking_install_specified_opens_modal', async () => {
+    store.packages = [{ name: 'pkg-a', installed: '2.4.9', available: '2.4.4', status: 'up_to_date' }]
+    store.selectedVersions = { 'pkg-a': '2.4.4' }
+
+    const wrapper = mountPanel()
+    await wrapper.find('.btn-version').trigger('click')
+
+    expect(store.showVersionModal).toBe(true)
+    expect(store.pendingVersionInstall).toEqual({
+      packageName: 'pkg-a',
+      version: '2.4.4',
+      installedVersion: '2.4.9',
+    })
   })
 
   // -------------------------------------------------------------------

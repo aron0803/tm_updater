@@ -31,6 +31,7 @@ ORIGIN_EXE_SIBLING = "exe_sibling"
 
 # Folder name probed one level above the exe when no updater.toml sets a source.
 EXE_SIBLING_SOURCE_DIRNAME = "packages"
+EXE_SIBLING_SOURCE_DIRNAMES = ("packages", "whls", "wheels")
 
 _VENV_SCRIPTS = ("Scripts", "python.exe")
 
@@ -177,9 +178,10 @@ def exe_sibling_source(exe_dir: Path) -> Path | None:
     parent = exe_dir.parent
     if parent.is_dir() and any(parent.glob("*.whl")):
         return parent
-    sub_folder = exe_dir / EXE_SIBLING_SOURCE_DIRNAME
-    if sub_folder.is_dir() and any(sub_folder.glob("*.whl")):
-        return sub_folder
+    for name in EXE_SIBLING_SOURCE_DIRNAMES:
+        sub_folder = exe_dir / name
+        if sub_folder.is_dir() and any(sub_folder.glob("*.whl")):
+            return sub_folder
     return None
 
 

@@ -10,6 +10,15 @@
         {{ primaryButtonText }}
       </button>
       <button
+        v-if="specifiedPackages.length > 0 && updateCount === 0"
+        class="btn btn-version"
+        :disabled="store.isUpdating || store.isScanning"
+        @click="handleInstallSpecified"
+      >
+        <span v-if="store.isUpdating" class="spinner"></span>
+        {{ store.isUpdating ? 'Installing...' : `⬇ Install Specified (${specifiedPackages.length})` }}
+      </button>
+      <button
         class="btn btn-success"
         :disabled="!canLaunch"
         @click="launchApp"
@@ -46,6 +55,13 @@ const updateCount = computed(() => {
     store.packages.map(p => `${p.name}:${p.status}`)
   )
   return actionable.length
+})
+
+const specifiedPackages = computed(() => {
+  return store.packages.filter(p => {
+    const sel = store.selectedVersions[p.name]
+    return sel && sel !== p.installed
+  })
 })
 
 const canLaunch = computed(() => {
@@ -100,6 +116,17 @@ function handlePrimaryAction() {
   } else {
     checkForUpdates()
   }
+}
+
+function handleInstallSpecified() {
+  if (specifiedPackages.value.length === 0) return
+  const target = specifiedPackages.value[0]
+  store.pendingVersionInstall = {
+    packageName: target.name,
+    version: store.selectedVersions[target.name],
+    installedVersion: target.installed,
+  }
+  store.showVersionModal = true
 }
 
 async function checkForUpdates() {
@@ -187,6 +214,15 @@ async function launchApp() {
 
 .btn-primary:hover:not(:disabled) {
   background: #0d47a1;
+}
+
+.btn-version {
+  background: #8e24aa;
+  color: white;
+}
+
+.btn-version:hover:not(:disabled) {
+  background: #7b1fa2;
 }
 
 .btn-success {

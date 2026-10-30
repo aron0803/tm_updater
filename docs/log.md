@@ -1,5 +1,30 @@
 # Change Log
 
+
+### [2026-10-30 17:58] 修復降版與指定版本 UI 安裝互動，強化 whls 自動偵測與 PyInstaller 快速建置
+
+- **對應意圖 (Intention)**：`docs/intention.md` [2026-10-30 17:35] 任務意圖：修復指定版本與降版（Downgrade）之 UI 觸發與安裝互動
+- **對應規格 (Spec/Schema)**：`docs/specs/version_downgrade_ux_spec.md`
+- **修改原因 (Why)**：
+  1. 當來源 wheel 為舊版時，前端載入預選了該版本，導致下拉選單不觸發 `@change` 彈窗，且 ActionPanel 只計算 `update_available`，無處可點選安裝降版。
+  2. onefile 放置在 package 目錄之上時，因為只搜尋 `packages` 目錄而忽略 `whls` 目錄，導致未能自動識別本地 wheel 來源而回退至離線網路碟。
+  3. Nuitka 建置過久，需要支援 PyInstaller 快速打包發佈。
+- **解耦與修改方式 (Decoupling & How)**：
+  - 受影響檔案/函式：
+    - `src/updater/gui/frontend/src/components/PackageTable.vue`：在 `version_specified` 列提供明確的 `[Install]` 按鈕，點擊直接彈出確認對話框。
+    - `src/updater/gui/frontend/src/components/ActionPanel.vue`：加入 `specifiedPackages` 計算屬性與 `[Install Specified (N)]` 按鈕。
+    - `src/updater/gui/frontend/src/App.vue`：加入 `versionSpecifiedCount` 標籤（紫色 badge），取代誤導性的 "All up to date"。
+    - `src/updater/target.py` (`exe_sibling_source`)：新增 `whls` 與 `wheels` 子目錄支援。
+    - `src/updater/gui/app.py` (`_exe_dir`, `main`)：frozen 環境下改用 `sys.executable` 確保 onefile 正確定位本機執行檔路徑。
+- **驗證與測試 (Verification & Testing)**：
+  - `npm test -- --run`：70 個 Vitest 單元測試 100% 通過（包含新增之 ActionPanel 與 PackageTable 降版按鈕測試）。
+  - `pytest tests/test_target.py`：32 個目標解析測試 100% 通過。
+  - PyInstaller onedir 與 onefile 快速建置驗證成功（建置耗時約 20 秒）。
+- **結果 (Result)**：
+  - 成功解決降版無法觸發與找不到安裝按鈕之問題。
+  - 支援 PyInstaller 快速打包，產出可執行的 `dist/pyinstaller/updater_gui/updater_gui.exe` 與 `dist/onefile/updater_gui.exe`。
+
+
 ### [2026-10-29 15:35] 1.5.2：執行期狀態檔改為 TOML（`updater_state.json → updater_state.toml`）
 
 - **對應規格 (Spec/Schema)**：

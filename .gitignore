@@ -16,3 +16,5 @@ nuitka-crash-report.xml
 .superpowers/
 node_modules/
 src/updater/gui/frontend/dist/
+
+*.spec

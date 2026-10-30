@@ -6,6 +6,9 @@
         <span v-if="updateCount > 0" class="badge badge-update">
           {{ updateCount }} update{{ updateCount > 1 ? 's' : '' }}
         </span>
+        <span v-else-if="versionSpecifiedCount > 0" class="badge badge-specified">
+          {{ versionSpecifiedCount }} version{{ versionSpecifiedCount > 1 ? 's' : '' }} specified
+        </span>
         <span v-else-if="store.packages.length > 0" class="badge badge-ok">
           All up to date
         </span>
@@ -39,6 +42,13 @@ const updateCount = computed(() =>
   store.packages.filter(p =>
     p.status === 'update_available' || p.status === 'not_installed'
   ).length
+)
+
+const versionSpecifiedCount = computed(() =>
+  store.packages.filter(p => {
+    const sel = store.selectedVersions[p.name]
+    return sel && sel !== p.installed
+  }).length
 )
 </script>
 
@@ -77,6 +87,11 @@ const updateCount = computed(() =>
 
 .badge-update {
   background: var(--accent-orange);
+  color: white;
+}
+
+.badge-specified {
+  background: #8e24aa;
   color: white;
 }
 

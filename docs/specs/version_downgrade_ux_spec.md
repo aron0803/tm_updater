@@ -32,3 +32,4 @@ However:
 - `window.pywebview.api.install_versioned_package(packageName, version)` remains unchanged.
 - Backend uninstalls existing version and installs specified version from wheel source using `pip install --find-links=<source> <pkg>==<version>`.
 - Session-level `_auto_update_disabled` is set to `True` for downgrades.
+

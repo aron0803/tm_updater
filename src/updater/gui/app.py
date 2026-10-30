@@ -116,6 +116,8 @@ class Api:
     # --- target (folder to update) -------------------------------------
 
     def _exe_dir(self) -> Path:
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).resolve().parent
         return Path(sys.argv[0]).resolve().parent
 
     def _source_resolution(self, probe: bool = False) -> SourceResolution:
@@ -700,9 +702,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # sys.argv[0] is the exe (frozen) or this script (dev); its parent is the
-    # directory the legacy find_config()/find_venv_python() anchored on.
-    exe_dir = Path(sys.argv[0]).resolve().parent
+    # sys.executable is the real exe on disk when frozen (PyInstaller/Nuitka)
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+    else:
+        exe_dir = Path(sys.argv[0]).resolve().parent
 
     # Last folders chosen in the GUI (updater_state.toml).  Read-only unless the
     # user picks again; `--project` still wins over the saved value (spec 3.3.3).

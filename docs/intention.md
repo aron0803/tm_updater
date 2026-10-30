@@ -14,3 +14,4 @@
 - **範疇邊界 (In-Scope & Out-of-Scope)**：
   - 涵蓋範圍：`PackageTable.vue`、`ActionPanel.vue`、`VersionConfirmModal.vue`、`main.js` 與相關測試、重新建置前端 dist 及更新 exe。
   - 本次不做 (Non-Goals)：不修改後端 core pip 安裝協議核心邏輯（後端 `install_versioned_package` 已具備完備功能）。
+

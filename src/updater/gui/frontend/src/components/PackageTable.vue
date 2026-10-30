@@ -31,7 +31,16 @@
           </select>
         </span>
         <span class="col-status" :class="statusClass(pkg)">
-          {{ statusText(pkg) }}
+          <span class="status-label">{{ statusText(pkg) }}</span>
+          <button
+            v-if="getEffectiveStatus(pkg) === 'version_specified'"
+            class="btn-install-mini"
+            :disabled="store.isUpdating"
+            title="Install this version"
+            @click.stop="triggerVersionInstall(pkg)"
+          >
+            Install
+          </button>
         </span>
       </div>
       <div v-if="packages.length === 0" class="table-empty">
@@ -47,10 +56,8 @@ import { inject, computed } from 'vue'
 const store = inject('store')
 const packages = computed(() => store.packages)
 
-function onVersionSelect(pkg) {
+function triggerVersionInstall(pkg) {
   const selected = store.selectedVersions[pkg.name]
-  console.log('[PackageTable] Version selected:', selected, 'for', pkg.name, '(installed:', pkg.installed, ')')
-
   if (selected && selected !== pkg.installed) {
     store.pendingVersionInstall = {
       packageName: pkg.name,
@@ -58,7 +65,16 @@ function onVersionSelect(pkg) {
       installedVersion: pkg.installed,
     }
     store.showVersionModal = true
-    console.log('[PackageTable] Opening confirm modal:', pkg.name, pkg.installed, '->', selected)
+    console.log('[PackageTable] Triggering install modal from button:', pkg.name, pkg.installed, '->', selected)
+  }
+}
+
+function onVersionSelect(pkg) {
+  const selected = store.selectedVersions[pkg.name]
+  console.log('[PackageTable] Version selected:', selected, 'for', pkg.name, '(installed:', pkg.installed, ')')
+
+  if (selected && selected !== pkg.installed) {
+    triggerVersionInstall(pkg)
   }
 }
 
@@ -163,7 +179,40 @@ function statusText(pkg) {
 .col-name { flex: 2; font-weight: 500; }
 .col-installed { flex: 1; }
 .col-available { flex: 1; display: flex; align-items: center; }
-.col-status { flex: 1; text-align: right; font-weight: 500; }
+.col-status {
+  flex: 1.2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-weight: 500;
+  gap: 8px;
+}
+
+.status-label {
+  white-space: nowrap;
+}
+
+.btn-install-mini {
+  padding: 2px 10px;
+  border: none;
+  border-radius: 3px;
+  background-color: #8e24aa;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s, opacity 0.15s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.btn-install-mini:hover:not(:disabled) {
+  background-color: #6a1b9a;
+}
+
+.btn-install-mini:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .col-available select {
   width: 100%;

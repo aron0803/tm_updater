@@ -364,4 +364,35 @@ describe('PackageTable.vue - getEffectiveStatus version_specified display', () =
     expect(statusCell.text()).toContain('Update')
     expect(statusCell.classes()).toContain('status-update')
   })
+
+  it('test_shows_install_button_when_version_specified', async () => {
+    store = makeStore({
+      packages: [{ name: 'pkg-a', installed: '2.0.0', available: '2.0.0', status: 'up_to_date' }],
+      versionsMap: { 'pkg-a': ['2.0.0', '1.0.0'] },
+      selectedVersions: { 'pkg-a': '1.0.0' },
+    })
+
+    const wrapper = mount(PackageTable, { global: { provide: { store } } })
+    const btn = wrapper.find('.btn-install-mini')
+    expect(btn.exists()).toBe(true)
+    expect(btn.text()).toBe('Install')
+  })
+
+  it('test_clicking_install_button_opens_modal', async () => {
+    store = makeStore({
+      packages: [{ name: 'pkg-a', installed: '2.0.0', available: '2.0.0', status: 'up_to_date' }],
+      versionsMap: { 'pkg-a': ['2.0.0', '1.0.0'] },
+      selectedVersions: { 'pkg-a': '1.0.0' },
+    })
+
+    const wrapper = mount(PackageTable, { global: { provide: { store } } })
+    await wrapper.find('.btn-install-mini').trigger('click')
+
+    expect(store.showVersionModal).toBe(true)
+    expect(store.pendingVersionInstall).toEqual({
+      packageName: 'pkg-a',
+      version: '1.0.0',
+      installedVersion: '2.0.0',
+    })
+  })
 })
