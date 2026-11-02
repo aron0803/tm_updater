@@ -1,17 +1,17 @@
 # Current Active Intentions
 
-## [2026-10-30 17:35] 任務意圖：修復指定版本與降版（Downgrade）之 UI 觸發與安裝互動 [Status: In-Progress]
+## [2026-11-02 14:10] 任務意圖：降版 Timeout 根因排查與分段診斷日誌強化 [Status: In-Progress]
 - **核心目標 (Objective)**：
-  - 解決使用者在 GUI 介面中欲安裝指定版本（降版）時，畫面上找不到 Install 按鈕、且下拉選單因預選舊版未觸發 `@change` 導致無法彈出確認對話框的問題。
-  - 提供直觀、明確的單項安裝與批次指定版本安裝機制，讓使用者能順利執行降版與指定版本安裝。
+  - 解決使用者回報在降版時偶發 Timeout（120秒無回應後失敗）的問題。
+  - 根絕 pip install 因缺少 `--no-index` 導致嘗試對外連線 PyPI 造成的連線逾時。
+  - 在降版過程中導入結構化、分階段（Phased）的除錯與進度日誌（包含階段名稱、執行命令、耗時、wheel 檔案存在性檢驗、詳細錯誤），讓排查問題一目瞭然。
 - **驗收標準 (Acceptance Criteria)**：
-  1. 當套件的所選版本與已安裝版本不同（`Version specified` / 降版狀態）時：
-     - 在套件列直接提供明確的「Install」按鈕，點擊立即彈出 `VersionConfirmModal` 確認視窗。
-     - 點擊紫色的狀態文字或重新選取下拉選單時，亦能可靠彈出確認視窗。
-  2. 若有多個套件處於指定版本 / 降版狀態，ActionPanel 動作面板能夠感知並提供明確的引導或安裝入口。
-  3. 確認安裝後，正常呼叫後端 `install_versioned_package` 執行降版，並正確觸發 Session 級別的自動更新抑制（避免覆蓋），安裝完成後刷新套件狀態。
-  4. 既有單元測試與前端測試維持通過或更新對應測試案例。
+  1. `pip install` 指定版本時強制加上 `--no-index --no-input`，確保離線環境下絕對不向外部 PyPI 發起連線查詢。
+  2. 降版流程清楚區分兩階段輸出 Log：
+     - **[1/2 解除安裝]**：輸出即將解除安裝之版本、執行指令，完成時記錄耗時；若逾時或失敗輸出詳細原因。
+     - **[2/2 安裝版本]**：驗證來源 wheel 檔案、輸出安裝指令，完成時記錄耗時；若逾時或失敗輸出完整 stdout / stderr。
+  3. 各階段獨立處理 `TimeoutExpired`，日誌清楚標註逾時發生在「解除安裝」或「安裝指定版本」階段，並提供可能排查方向（如檔案被其他行程佔用等）。
+  4. 單元測試（`test_core.py`、`test_version_downgrade_integration.py`）對 `--no-index` 的斷言全部通過。
 - **範疇邊界 (In-Scope & Out-of-Scope)**：
-  - 涵蓋範圍：`PackageTable.vue`、`ActionPanel.vue`、`VersionConfirmModal.vue`、`main.js` 與相關測試、重新建置前端 dist 及更新 exe。
-  - 本次不做 (Non-Goals)：不修改後端 core pip 安裝協議核心邏輯（後端 `install_versioned_package` 已具備完備功能）。
-
+  - 涵蓋範圍：`src/updater/core.py`、`src/updater/gui/app.py`、單元測試、建置腳本與日誌更新。
+  - 本次不做 (Non-Goals)：不變更 GUI 介面架構；不縮短既有 120 秒安全超時時間閥值。
