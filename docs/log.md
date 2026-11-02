@@ -1,6 +1,31 @@
 # Change Log
 
 
+
+### [2026-11-02 14:15] 根除降版 Timeout 網路連線問題並新增分段診斷日誌
+
+- **對應意圖 (Intention)**：`docs/intention.md` [2026-11-02 14:10] 任務意圖：降版 Timeout 根因排查與分段診斷日誌強化
+- **對應規格 (Spec/Schema)**：`docs/specs/version_downgrade_diagnostics_spec.md`
+- **修改原因 (Why)**：
+  - 降版時 pip install 缺少 `--no-index` 參數，導致在工廠內網/離線環境下，pip 嘗試連線外部 PyPI 索引伺服器而發生長達 120 秒的 socket 連線逾時中斷。
+  - 舊程式將 uninstall 與 install 混在同一個 try-catch 中，且執行過程中沒有分段輸出 Log，導致逾時發生時無法判斷是在解除安裝還是安裝階段、亦無即時指令與耗時可供排查。
+- **解耦與修改方式 (Decoupling & How)**：
+  - 受影響檔案/函式：
+    - `src/updater/core.py` (`install_updates`)：
+      1. 降版 `install_cmd` 強制加入 `--no-index`，保證 100% 只從本地/指定 wheel 來源目錄讀取，完全隔離外部網路連線。
+      2. 分離「[1/2 解除安裝]」與「[2/2 安裝版本]」兩大階段，各自計算耗時並獨立捕獲 `TimeoutExpired`。
+      3. 安裝前自動檢查 source_path 下是否包含匹配之 wheel 檔，並在 Log 顯式印出 wheel 檔名。
+      4. 解除安裝逾時時標註可能原因（如檔案被其它程式鎖定）。
+    - `src/updater/gui/frontend/src/components/LogConsole.vue`：加入 `.log-warning` 與 `.log-debug` 樣式支援，使除錯日誌層次更分明。
+- **驗證與測試 (Verification & Testing)**：
+  - `pytest tests/test_core.py`：23 個測試案例 100% 通過（含先前因缺少 `--no-index` 而失敗的測試）。
+  - `npm test -- --run`：70 個前端 Vitest 單元測試 100% 通過。
+  - PyInstaller onedir 與 onefile 打包成功並同步更新至 `dist/`。
+- **結果 (Result)**：
+  - 降版不再對外連線，解決了內網/離線環境下 pip 漫長等待 socket timeout 的根本問題。
+  - 降版流程中每個步驟（檢查 wheel、卸載、安裝、耗時）都有清楚 Log 顯示於 Console。
+
+
 ### [2026-10-30 17:58] 修復降版與指定版本 UI 安裝互動，強化 whls 自動偵測與 PyInstaller 快速建置
 
 - **對應意圖 (Intention)**：`docs/intention.md` [2026-10-30 17:35] 任務意圖：修復指定版本與降版（Downgrade）之 UI 觸發與安裝互動

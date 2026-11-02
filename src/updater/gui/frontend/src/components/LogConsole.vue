@@ -82,8 +82,10 @@ watch(logs, async () => {
 }
 
 .log-info .log-msg { color: #4fc3f7; }
+.log-warning .log-msg { color: #ffa726; }
 .log-success .log-msg { color: var(--accent-green); }
 .log-error .log-msg { color: var(--accent-red); }
+.log-debug .log-msg { color: #90a4ae; }
 
 .log-empty {
   color: #546e7a;

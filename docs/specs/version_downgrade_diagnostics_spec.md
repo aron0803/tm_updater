@@ -30,3 +30,4 @@ Analysis reveals two major factors:
   - Success: `[2/2] 安裝完成 (耗時 X.Xs)`
   - Failure: `[2/2 安裝失敗] {stderr}`
   - Timeout: `[2/2 安裝逾時] pip install 超過 120 秒未回應`
+

@@ -246,8 +246,10 @@ def install_updates(
             on_progress("info", f"{ps.name}: {arrow} installing...")
 
         if target_version:
-            try:
-                # Uninstall existing version first
+            import time
+
+            # Stage 1: Uninstall existing version first
+            if ps.installed:
                 uninstall_cmd = [
                     str(python_exe),
                     "-m",
@@ -258,48 +260,107 @@ def install_updates(
                 ]
                 if on_progress:
                     on_progress(
+                        "info",
+                        f"{ps.name}: [1/2 解除安裝] 移除既有版本 (v{ps.installed})...",
+                    )
+                    on_progress(
                         "debug",
                         f"{ps.name}: [DEBUG] Uninstalling current version - cmd: {' '.join(uninstall_cmd)}",
                     )
-                uninstall_result = subprocess.run(
-                    uninstall_cmd,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    timeout=120,
-                    **_get_subprocess_kwargs(),
-                )
+                t_start_uninstall = time.monotonic()
+                try:
+                    uninstall_result = subprocess.run(
+                        uninstall_cmd,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        timeout=120,
+                        **_get_subprocess_kwargs(),
+                    )
+                except subprocess.TimeoutExpired:
+                    if on_progress:
+                        on_progress(
+                            "error",
+                            f"{ps.name}: [1/2 解除安裝逾時] pip uninstall 超過 120s 未回應（可能原因：相關程式或程序仍在使用該套件檔案造成鎖檔）",
+                        )
+                    failed += 1
+                    failures.append(f"{ps.name}: timeout")
+                    continue
+
+                t_uninstall = time.monotonic() - t_start_uninstall
                 if on_progress:
                     on_progress(
                         "debug",
-                        f"{ps.name}: [DEBUG] Uninstall returncode: {uninstall_result.returncode}",
+                        f"{ps.name}: [DEBUG] Uninstall returncode: {uninstall_result.returncode} (took {t_uninstall:.1f}s)",
                     )
                 if uninstall_result.returncode != 0:
                     if on_progress:
                         on_progress(
                             "error",
-                            f"{ps.name}: uninstall failed - {uninstall_result.stderr}",
+                            f"{ps.name}: [1/2 解除安裝失敗] {uninstall_result.stderr or uninstall_result.stdout}",
                         )
                     failed += 1
                     failures.append(f"{ps.name}: uninstall failed")
                     continue
-
-                # Install the specific target version
-                # Use --find-links to install from local source directory
-                if source_path:
-                    install_cmd = [
-                        str(python_exe),
-                        "-m",
-                        "pip",
-                        "install",
-                        f"--find-links={source_path}",
-                        f"{ps.name}=={target_version}",
-                    ]
+                else:
                     if on_progress:
                         on_progress(
-                            "debug",
-                            f"{ps.name}: [DEBUG] Installing from local source - cmd: {' '.join(install_cmd)}",
+                            "info",
+                            f"{ps.name}: [1/2 解除安裝] 完成 (耗時 {t_uninstall:.1f}s)",
                         )
+            else:
+                if on_progress:
+                    on_progress(
+                        "info",
+                        f"{ps.name}: [1/2 解除安裝] 未安裝既有版本，跳過移除步驟",
+                    )
+
+            # Stage 2: Install the specific target version
+            t_start_install = time.monotonic()
+            if source_path:
+                matched_wheel = None
+                normalized_pkg = normalize_name(ps.name)
+                if source_path.exists():
+                    for whl_file in source_path.glob("*.whl"):
+                        parts = whl_file.stem.split("-")
+                        if (
+                            len(parts) >= 2
+                            and normalize_name(parts[0]) == normalized_pkg
+                            and parts[1] == target_version
+                        ):
+                            matched_wheel = whl_file
+                            break
+
+                if matched_wheel and on_progress:
+                    on_progress(
+                        "info",
+                        f"{ps.name}: [2/2 安裝版本] 找到目標 wheel: {matched_wheel.name}",
+                    )
+                elif on_progress:
+                    on_progress(
+                        "debug",
+                        f"{ps.name}: [DEBUG] 未找到精確檔名 wheel，將透過 --find-links 索引匹配",
+                    )
+
+                install_cmd = [
+                    str(python_exe),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-index",
+                    f"--find-links={source_path}",
+                    f"{ps.name}=={target_version}",
+                ]
+                if on_progress:
+                    on_progress(
+                        "info",
+                        f"{ps.name}: [2/2 安裝版本] 從來源目錄安裝 v{target_version}...",
+                    )
+                    on_progress(
+                        "debug",
+                        f"{ps.name}: [DEBUG] Installing from local source - cmd: {' '.join(install_cmd)}",
+                    )
+                try:
                     install_result = subprocess.run(
                         install_cmd,
                         capture_output=True,
@@ -308,46 +369,62 @@ def install_updates(
                         timeout=120,
                         **_get_subprocess_kwargs(),
                     )
+                except subprocess.TimeoutExpired:
                     if on_progress:
                         on_progress(
-                            "debug",
-                            f"{ps.name}: [DEBUG] pip install returncode: {install_result.returncode}",
+                            "error",
+                            f"{ps.name}: [2/2 安裝逾時] pip install 超過 120s 未回應（--no-index 模式）",
                         )
-                        if install_result.stdout:
-                            on_progress(
-                                "debug",
-                                f"{ps.name}: [DEBUG] pip stdout: {install_result.stdout[:500]}",
-                            )
-                        if install_result.stderr:
-                            on_progress(
-                                "debug",
-                                f"{ps.name}: [DEBUG] pip stderr: {install_result.stderr[:500]}",
-                            )
-                    ok = install_result.returncode == 0
-                    err = install_result.stderr if not ok else ""
+                    failed += 1
+                    failures.append(f"{ps.name}: timeout")
+                    continue
+
+                t_install = time.monotonic() - t_start_install
+                if on_progress:
+                    on_progress(
+                        "debug",
+                        f"{ps.name}: [DEBUG] pip install returncode: {install_result.returncode} (took {t_install:.1f}s)",
+                    )
+                    if install_result.stdout:
+                        on_progress(
+                            "debug",
+                            f"{ps.name}: [DEBUG] pip stdout: {install_result.stdout[:500]}",
+                        )
+                    if install_result.stderr:
+                        on_progress(
+                            "debug",
+                            f"{ps.name}: [DEBUG] pip stderr: {install_result.stderr[:500]}",
+                        )
+                ok = install_result.returncode == 0
+                err = (install_result.stderr or install_result.stdout) if not ok else ""
+            else:
+                # Fallback to direct wheel installation if source_path not provided
+                if ps.whl_path:
+                    if on_progress:
+                        on_progress(
+                            "info",
+                            f"{ps.name}: [2/2 安裝版本] 使用指定 wheel 檔案安裝: {ps.whl_path.name}",
+                        )
+                    ok, err = install_whl(ps.whl_path, python_exe)
                 else:
-                    # Fallback to direct wheel installation if source_path not provided
-                    if ps.whl_path:
-                        if on_progress:
-                            on_progress(
-                                "debug",
-                                f"{ps.name}: [DEBUG] Using local wheel file: {ps.whl_path}",
-                            )
-                        ok, err = install_whl(ps.whl_path, python_exe)
-                    else:
-                        # Last resort: try PyPI
-                        install_cmd = [
-                            str(python_exe),
-                            "-m",
-                            "pip",
-                            "install",
-                            f"{ps.name}=={target_version}",
-                        ]
-                        if on_progress:
-                            on_progress(
-                                "debug",
-                                f"{ps.name}: [DEBUG] Installing from PyPI - cmd: {' '.join(install_cmd)}",
-                            )
+                    # Last resort: try PyPI
+                    install_cmd = [
+                        str(python_exe),
+                        "-m",
+                        "pip",
+                        "install",
+                        f"{ps.name}=={target_version}",
+                    ]
+                    if on_progress:
+                        on_progress(
+                            "info",
+                            f"{ps.name}: [2/2 安裝版本] 無本地來源，自 PyPI 安裝 v{target_version}...",
+                        )
+                        on_progress(
+                            "debug",
+                            f"{ps.name}: [DEBUG] Installing from PyPI - cmd: {' '.join(install_cmd)}",
+                        )
+                    try:
                         install_result = subprocess.run(
                             install_cmd,
                             capture_output=True,
@@ -356,19 +433,17 @@ def install_updates(
                             timeout=120,
                             **_get_subprocess_kwargs(),
                         )
+                    except subprocess.TimeoutExpired:
                         if on_progress:
                             on_progress(
-                                "debug",
-                                f"{ps.name}: [DEBUG] pip install returncode: {install_result.returncode}",
+                                "error",
+                                f"{ps.name}: [2/2 PyPI 安裝逾時] pip install 超過 120s 未回應（請檢查網路連線或 Proxy）",
                             )
-                        ok = install_result.returncode == 0
-                        err = install_result.stderr if not ok else ""
-            except subprocess.TimeoutExpired:
-                if on_progress:
-                    on_progress("error", f"{ps.name}: timed out after 120s")
-                failed += 1
-                failures.append(f"{ps.name}: timeout")
-                continue
+                        failed += 1
+                        failures.append(f"{ps.name}: timeout")
+                        continue
+                    ok = install_result.returncode == 0
+                    err = (install_result.stderr or install_result.stdout) if not ok else ""
         else:
             assert ps.whl_path is not None
             ok, err = install_whl(ps.whl_path, python_exe)
