@@ -1,17 +1,29 @@
 # Current Active Intentions
 
-## [2026-11-02 14:10] 任務意圖：降版 Timeout 根因排查與分段診斷日誌強化 [Status: In-Progress]
+## [2026-11-02 14:30] 任務意圖：套件右鍵選單（移除/安裝/重新安裝）與同版本號覆蓋更新支援 [Status: In-Progress]
 - **核心目標 (Objective)**：
-  - 解決使用者回報在降版時偶發 Timeout（120秒無回應後失敗）的問題。
-  - 根絕 pip install 因缺少 `--no-index` 導致嘗試對外連線 PyPI 造成的連線逾時。
-  - 在降版過程中導入結構化、分階段（Phased）的除錯與進度日誌（包含階段名稱、執行命令、耗時、wheel 檔案存在性檢驗、詳細錯誤），讓排查問題一目瞭然。
+  - 解決開發者/測試人員在測試同一版本號時無法重複更新的問題（先前受限於 SemVer 比對相等即判定 `Up to date` 而無操作入口）。
+  - 提供直覺的桌面端操作體驗：在套件清單上點擊滑鼠右鍵，彈出快捷選單提供「安裝 / 重新安裝 (Reinstall)」與「移除 (Uninstall)」。
+  - 支援已安裝套件的一鍵卸載流程（包含二次確認彈窗防誤觸、即時除錯日誌、狀態更新）。
+  - 支援相同版本號的強制重新安裝（先卸載既有檔案、再由本地 wheel 重新安裝，確保替換最新測試構建）。
 - **驗收標準 (Acceptance Criteria)**：
-  1. `pip install` 指定版本時強制加上 `--no-index --no-input`，確保離線環境下絕對不向外部 PyPI 發起連線查詢。
-  2. 降版流程清楚區分兩階段輸出 Log：
-     - **[1/2 解除安裝]**：輸出即將解除安裝之版本、執行指令，完成時記錄耗時；若逾時或失敗輸出詳細原因。
-     - **[2/2 安裝版本]**：驗證來源 wheel 檔案、輸出安裝指令，完成時記錄耗時；若逾時或失敗輸出完整 stdout / stderr。
-  3. 各階段獨立處理 `TimeoutExpired`，日誌清楚標註逾時發生在「解除安裝」或「安裝指定版本」階段，並提供可能排查方向（如檔案被其他行程佔用等）。
-  4. 單元測試（`test_core.py`、`test_version_downgrade_integration.py`）對 `--no-index` 的斷言全部通過。
+  1. **右鍵選單 (Context Menu)**：
+     - 在 `PackageTable` 任一列點擊右鍵時，阻止原生瀏覽器選單並在游標處彈出自訂選單。
+     - 若套件已安裝，顯示「重新安裝 (Reinstall)」與「移除 (Uninstall)」。
+     - 若套件未安裝，顯示「安裝 (Install)」且「移除」反灰或隱藏。
+     - 點擊選單外部、滾動或按 ESC 鍵即關閉選單。
+  2. **同版本號重新安裝 (Reinstall)**：
+     - 點選「重新安裝」時彈出確認視窗，明確提示將先移除既有版本再由 wheel 重新安裝。
+     - `core.py:install_updates` 當 `target_version == installed` 時，亦能正確納入待更新名單，完成 `pip uninstall` 與 `pip install` 流程。
+  3. **套件移除 (Uninstall)**：
+     - 點選「移除」時彈出確認視窗，確認後呼叫後端 `uninstall_package`。
+     - 解除安裝過程在後端鎖保護下於背景線程執行，輸出階段與耗時 Log。
+     - 移除成功後自動刷新套件列表（狀態變更為 `not_installed`），關閉彈窗並解除 UI 鎖定。
+  4. **完全離線保障**：
+     - 解除安裝與重新安裝過程嚴格維持 `--no-index --no-input`，100% 絕不對外連網。
+  5. **自動化測試**：
+     - 新增單元測試驗證 `core.py` 卸載功能、同版本重新安裝邏輯與 API 契約。
+     - 前端 Vitest 單元測試驗證右鍵選單與移除互動。
 - **範疇邊界 (In-Scope & Out-of-Scope)**：
-  - 涵蓋範圍：`src/updater/core.py`、`src/updater/gui/app.py`、單元測試、建置腳本與日誌更新。
-  - 本次不做 (Non-Goals)：不變更 GUI 介面架構；不縮短既有 120 秒安全超時時間閥值。
+  - 涵蓋範圍：`src/updater/core.py`、`src/updater/gui/app.py`、前端 `PackageTable.vue`、`UninstallConfirmModal.vue`、`VersionConfirmModal.vue`、單元測試、PyInstaller 建置。
+  - 本次不做 (Non-Goals)：不修改既有的全量更新「Check for Updates」按鈕邏輯；批次移除不在此次範疇（單一套件操作為主）。
