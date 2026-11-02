@@ -12,6 +12,9 @@ const store = reactive({
   isLaunching: false,
   showVersionModal: false,
   pendingVersionInstall: null, // {packageName: string, version: string, installedVersion: string|null}
+  showUninstallModal: false,
+  pendingUninstall: null,      // {packageName: string, installedVersion: string|null}
+  activeOperation: null,       // {packageName: string, type: 'install' | 'reinstall' | 'uninstall', version?: string}
   versionsMap: {},       // { package_name: ["X.Y.Z", "A.B.C", ...] } sorted newest-first
   selectedVersions: {},  // { package_name: "X.Y.Z" } user's current selection
   target: {},            // { project, venv, source, config, config_origin, error }
@@ -66,6 +69,37 @@ window.onVersionedInstallComplete = async (result) => {
 
   store.pendingVersionInstall = null
   store.showVersionModal = false
+  store.activeOperation = null
+  store.isUpdating = false
+}
+
+window.onUninstallComplete = async (result) => {
+  if (result.success) {
+    console.log('[onUninstallComplete] Uninstall complete for', result.packageName)
+  } else {
+    console.error(`[onUninstallComplete] Uninstall failed for ${result.packageName}:`, result.error)
+  }
+
+  if (window.pywebview) {
+    try {
+      await Promise.all(store.packages.map(async (pkg) => {
+        try {
+          const versions = await window.pywebview.api.get_versions(pkg.name)
+          store.versionsMap[pkg.name] = versions || []
+          store.selectedVersions[pkg.name] = pkg.installed || (versions && versions[0]) || null
+        } catch (err) {
+          console.warn(`[onUninstallComplete] Failed to load versions for ${pkg.name}:`, err)
+          store.versionsMap[pkg.name] = []
+        }
+      }))
+    } catch (err) {
+      console.error('[onUninstallComplete] Refresh failed:', err)
+    }
+  }
+
+  store.pendingUninstall = null
+  store.showUninstallModal = false
+  store.activeOperation = null
   store.isUpdating = false
 }
 

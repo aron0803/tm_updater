@@ -25,6 +25,7 @@ from updater.core import (
     get_all_versions,
     get_installed_versions_batch,
     install_updates,
+    uninstall_package,
     scan_packages,
 )
 from updater.gui.dialog import DialogUnavailable, pick_folder
@@ -637,6 +638,7 @@ class Api:
                 on_progress=self._push_log,
                 target_version=version,
                 source_path=self._source_path(),
+                reinstall=True,
             )
 
             # Refresh package status in the GUI after installation
@@ -661,6 +663,50 @@ class Api:
                 )
 
         self._run_with_lock(_do_install)
+        return {"success": True, "error": None}
+
+    def uninstall_package(self, package_name: str) -> dict[str, object]:
+        """
+        Uninstall a package from the environment.
+
+        Args:
+            package_name: The package to uninstall (e.g., "test-matrix").
+
+        Returns:
+            {"success": True, "error": None} when the background job starts, or
+            {"success": False, "error": "<reason>"} for immediate validation failures.
+        """
+        if self._python_exe is None:
+            return {"success": False, "error": "No venv Python found"}
+
+        def _do_uninstall() -> None:
+            if self._python_exe is None:
+                self._push_log("error", "No venv Python found")
+                return
+
+            self._push_log("info", f"開始解除安裝 {package_name}...")
+            ok, err = uninstall_package(
+                package_name,
+                self._python_exe,
+                on_progress=self._push_log,
+            )
+
+            # Refresh package status in the GUI
+            available_now = scan_packages(self._source_path())
+            installed_now = get_installed_versions_batch(
+                self._python_exe, self._config.packages
+            )
+            statuses_now = check_updates(
+                self._config.packages, installed_now, available_now
+            )
+            self._serialize_packages(statuses_now)
+
+            if self._window:
+                self._window.evaluate_js(
+                    f"window.onUninstallComplete({json.dumps({'packageName': package_name, 'success': ok, 'error': err})})"
+                )
+
+        self._run_with_lock(_do_uninstall)
         return {"success": True, "error": None}
 
     def launch_app(self) -> dict[str, object]:

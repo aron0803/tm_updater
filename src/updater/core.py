@@ -214,22 +214,84 @@ def install_whl(whl_path: Path, python_exe: Path) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def uninstall_package(
+    package_name: str,
+    python_exe: Path,
+    on_progress: ProgressCallback | None = None,
+) -> tuple[bool, str]:
+    """
+    Uninstall a package from the target python environment.
+
+    Args:
+        package_name: Name of the package to uninstall.
+        python_exe: Path to python.exe in the virtual environment.
+        on_progress: Optional progress callback.
+
+    Returns:
+        (success, error_message)
+    """
+    import time
+
+    cmd = [
+        str(python_exe),
+        "-m",
+        "pip",
+        "uninstall",
+        "-y",
+        "--no-input",
+        package_name,
+    ]
+    if on_progress:
+        on_progress("info", f"{package_name}: [解除安裝] 移除既有套件...")
+        on_progress("debug", f"{package_name}: [DEBUG] pip uninstall cmd: {' '.join(cmd)}")
+
+    t_start = time.monotonic()
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=120,
+            **_get_subprocess_kwargs(),
+        )
+        duration = time.monotonic() - t_start
+        if result.returncode == 0:
+            if on_progress:
+                on_progress("success", f"{package_name}: [解除安裝] 成功移除 (耗時 {duration:.1f}s)")
+            return True, ""
+        err = (result.stderr or result.stdout).strip()
+        if on_progress:
+            on_progress("error", f"{package_name}: [解除安裝失敗] {err}")
+        return False, err
+    except subprocess.TimeoutExpired:
+        msg = "pip uninstall 超過 120s 未回應（可能原因：相關程式仍在使用該套件檔案造成鎖檔）"
+        if on_progress:
+            on_progress("error", f"{package_name}: [解除安裝逾時] {msg}")
+        return False, msg
+    except Exception as exc:
+        if on_progress:
+            on_progress("error", f"{package_name}: [解除安裝錯誤] {exc}")
+        return False, str(exc)
+
+
 def install_updates(
     statuses: list[PackageStatus],
     python_exe: Path,
     on_progress: ProgressCallback | None = None,
     target_version: str | None = None,
     source_path: Path | None = None,
+    reinstall: bool = False,
 ) -> UpdateResult:
     if target_version:
         updated_statuses = []
         for s in statuses:
-            if s.status == STATUS_UP_TO_DATE and s.installed != target_version:
+            if s.status == STATUS_UP_TO_DATE and (s.installed != target_version or reinstall):
                 if on_progress:
                     on_progress(
                         "debug",
                         f"{s.name}: overriding status to version_specified "
-                        f"(installed={s.installed}, target={target_version})",
+                        f"(installed={s.installed}, target={target_version}, reinstall={reinstall})",
                     )
                 updated_statuses.append(replace(s, status=STATUS_VERSION_SPECIFIED))
             else:

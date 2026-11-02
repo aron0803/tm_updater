@@ -513,3 +513,34 @@ class TestStatePersistence:
 
         assert push.call_count == 1
         assert "沿用上次選擇的專案" in push.call_args.args[1]
+
+
+class TestUninstallPackageGui:
+    def test_uninstall_package_no_venv(self, sample_config: UpdaterConfig) -> None:
+        api = Api(sample_config, None, None)
+        res = api.uninstall_package("test-pkg")
+        assert res["success"] is False
+        assert "No venv Python found" in res["error"]
+
+    def test_uninstall_package_success(self, sample_config: UpdaterConfig, tmp_path: Path) -> None:
+        python_exe = tmp_path / "venv" / "Scripts" / "python.exe"
+        python_exe.parent.mkdir(parents=True)
+        python_exe.touch()
+        target = UpdateTarget(tmp_path, sample_config, python_exe, "project")
+        api = Api(sample_config, python_exe, target)
+
+        mock_window = MagicMock()
+        api._window = mock_window
+
+        with patch("updater.gui.app.uninstall_package", return_value=(True, "")) as mock_uninstall:
+            with patch.object(api, "_serialize_packages"):
+                res = api.uninstall_package("test-pkg")
+                assert res["success"] is True
+
+                # Wait for background thread lock
+                api._update_lock.acquire()
+                api._update_lock.release()
+
+                mock_uninstall.assert_called_once()
+                js_calls = [c[0][0] for c in mock_window.evaluate_js.call_args_list]
+                assert any("onUninstallComplete" in call and '"success": true' in call for call in js_calls)

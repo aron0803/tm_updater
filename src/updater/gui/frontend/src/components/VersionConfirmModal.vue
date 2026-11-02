@@ -1,19 +1,26 @@
 <template>
   <div v-if="store.showVersionModal" class="modal-overlay">
     <div class="modal-dialog">
-      <h2>Install Different Version?</h2>
+      <h2>{{ isReinstall ? 'Reinstall Package?' : 'Install Different Version?' }}</h2>
       <p v-if="store.pendingVersionInstall">
-        <strong>{{ store.pendingVersionInstall.packageName }}</strong>:
-        {{ store.pendingVersionInstall.installedVersion || 'not installed' }}
-        &rarr; <strong>{{ store.pendingVersionInstall.version }}</strong><br>
-        This will uninstall the current version first.
+        <template v-if="isReinstall">
+          <strong>{{ store.pendingVersionInstall.packageName }}</strong>:
+          重新安裝 <strong>v{{ store.pendingVersionInstall.version }}</strong><br>
+          此操作將先乾淨解除安裝既有版本，再由來源 wheel 重新安裝。
+        </template>
+        <template v-else>
+          <strong>{{ store.pendingVersionInstall.packageName }}</strong>:
+          {{ store.pendingVersionInstall.installedVersion || 'not installed' }}
+          &rarr; <strong>{{ store.pendingVersionInstall.version }}</strong><br>
+          This will uninstall the current version first.
+        </template>
       </p>
       <div class="modal-buttons">
         <button class="btn btn-cancel" :disabled="store.isUpdating" @click="cancelInstall">
           Cancel
         </button>
         <button class="btn btn-confirm" :disabled="store.isUpdating" @click="confirmInstall">
-          {{ store.isUpdating ? 'Installing...' : 'Install' }}
+          {{ isReinstall ? 'Reinstall' : 'Install' }}
         </button>
       </div>
     </div>
@@ -21,9 +28,15 @@
 </template>
 
 <script setup>
-import { inject } from 'vue'
+import { inject, computed } from 'vue'
 
 const store = inject('store')
+
+const isReinstall = computed(() => {
+  if (!store.pendingVersionInstall) return false
+  const { version, installedVersion } = store.pendingVersionInstall
+  return Boolean(installedVersion && version === installedVersion)
+})
 
 function cancelInstall() {
   if (store.pendingVersionInstall) {
@@ -38,25 +51,32 @@ function cancelInstall() {
 async function confirmInstall() {
   if (!store.pendingVersionInstall) return
 
-  const { packageName, version } = store.pendingVersionInstall
+  const { packageName, version, installedVersion } = store.pendingVersionInstall
+  const reinstall = Boolean(installedVersion && version === installedVersion)
 
-  // Lock the UI while waiting for the backend to complete
+  // Register active background operation
+  store.activeOperation = {
+    packageName,
+    type: reinstall ? 'reinstall' : 'install',
+    version,
+  }
+
+  // Lock the UI for background updating
   store.isUpdating = true
+
+  // Immediately close modal so user is not blocked and can see progress & spinner
+  store.showVersionModal = false
 
   if (window.pywebview) {
     try {
-      // Backend runs install on a background thread and calls
-      // window.onVersionedInstallComplete() when done (success or failure).
       await window.pywebview.api.install_versioned_package(packageName, version)
     } catch (err) {
       console.error('[VersionConfirmModal] install_versioned_package call failed:', err)
       store.isUpdating = false
-      store.showVersionModal = false
+      store.activeOperation = null
       store.pendingVersionInstall = null
     }
   }
-  // Do NOT close the modal here; onVersionedInstallComplete will close it
-  // after refreshing package data.
 }
 </script>
 
@@ -79,7 +99,7 @@ async function confirmInstall() {
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   padding: 24px;
-  min-width: 300px;
+  min-width: 320px;
   max-width: 500px;
 }
 
@@ -99,35 +119,40 @@ async function confirmInstall() {
 
 .modal-buttons {
   display: flex;
-  gap: 12px;
   justify-content: flex-end;
+  gap: 12px;
 }
 
 .btn {
-  padding: 10px 16px;
-  border: none;
+  padding: 8px 16px;
   border-radius: 4px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s;
+  border: none;
+  transition: background 0.15s;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-cancel {
-  background: #e0e0e0;
-  color: #333;
+  background: #f0f0f0;
+  color: #666;
 }
 
-.btn-cancel:hover {
-  background: #d0d0d0;
+.btn-cancel:hover:not(:disabled) {
+  background: #e4e4e4;
 }
 
 .btn-confirm {
-  background: #2e7d32;
+  background: var(--accent-blue, #1976d2);
   color: white;
 }
 
-.btn-confirm:hover {
-  background: #1b5e20;
+.btn-confirm:hover:not(:disabled) {
+  background: #1565c0;
 }
 </style>

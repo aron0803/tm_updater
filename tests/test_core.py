@@ -15,6 +15,7 @@ from updater.core import (
     scan_packages,
     check_updates,
     install_updates,
+    uninstall_package,
 )
 
 
@@ -117,7 +118,9 @@ class TestUpdateResult:
 @pytest.fixture(scope="function")
 def mock_subprocess() -> Generator[MagicMock, None, None]:
     """Patch updater.core.subprocess so all subprocess.run calls are intercepted."""
+    import subprocess
     with patch("updater.core.subprocess") as mock_sp:
+        mock_sp.TimeoutExpired = subprocess.TimeoutExpired
         yield mock_sp
 
 
@@ -256,3 +259,65 @@ class TestVersionSpecifiedStatus:
         calls = mock_subprocess.run.call_args_list
         # uninstall + install
         assert len(calls) == 2
+
+
+    def test_reinstall_same_version_when_reinstall_flag_true(
+        self, mock_subprocess: MagicMock
+    ) -> None:
+        """up_to_date package is reinstalled when reinstall=True."""
+        mock_subprocess.run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        python_exe = Path("C:\venv\Scripts\python.exe")
+        source_path = Path("D:\\packages")
+
+        result = install_updates(
+            [
+                PackageStatus(
+                    name="test-pkg",
+                    installed="1.0.0",
+                    available="1.0.0",
+                    status=STATUS_UP_TO_DATE,
+                )
+            ],
+            python_exe,
+            target_version="1.0.0",
+            source_path=source_path,
+            reinstall=True,
+        )
+
+        assert result.total == 1
+        calls = mock_subprocess.run.call_args_list
+        assert len(calls) == 2
+        assert "uninstall" in calls[0][0][0]
+        assert "install" in calls[1][0][0]
+
+
+class TestUninstallPackage:
+    def test_uninstall_success(self, mock_subprocess: MagicMock) -> None:
+        mock_subprocess.run.return_value = MagicMock(returncode=0, stdout="Successfully uninstalled", stderr="")
+        python_exe = Path("C:\venv\Scripts\python.exe")
+
+        logs = []
+        ok, err = uninstall_package("test-matrix", python_exe, on_progress=lambda lvl, msg: logs.append((lvl, msg)))
+
+        assert ok is True
+        assert err == ""
+        cmd = mock_subprocess.run.call_args[0][0]
+        assert cmd == [str(python_exe), "-m", "pip", "uninstall", "-y", "--no-input", "test-matrix"]
+        assert any(l[0] == "success" for l in logs)
+
+    def test_uninstall_failure(self, mock_subprocess: MagicMock) -> None:
+        mock_subprocess.run.return_value = MagicMock(returncode=1, stdout="", stderr="Permission denied")
+        python_exe = Path("C:\venv\Scripts\python.exe")
+
+        ok, err = uninstall_package("test-matrix", python_exe)
+        assert ok is False
+        assert "Permission denied" in err
+
+    def test_uninstall_timeout(self, mock_subprocess: MagicMock) -> None:
+        import subprocess
+        mock_subprocess.run.side_effect = subprocess.TimeoutExpired(cmd="pip", timeout=120)
+        python_exe = Path("C:\venv\Scripts\python.exe")
+
+        ok, err = uninstall_package("test-matrix", python_exe)
+        assert ok is False
+        assert "120s" in err

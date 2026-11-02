@@ -2,6 +2,43 @@
 
 
 
+### [2026-11-02 14:40] 套件右鍵選單（移除/安裝/重新安裝）、對話框立即關閉與背景轉圈動態
+
+- **對應意圖 (Intention)**：`docs/intention.md` [2026-11-02 14:35] 任務意圖：對話框立即關閉與背景轉圈、套件右鍵選單（移除/安裝）及同版重新安裝
+- **對應規格 (Spec/Schema)**：`docs/specs/package_context_menu_spec.md`
+- **修改原因 (Why)**：
+  1. 使用者反饋：降版點擊確認後對話框停滯在螢幕中央顯示「Installing...」造成視覺卡頓與無法看見即時日誌；期望確認後對話框立即關閉，背景處理顯示轉圈載入。
+  2. 使用者需求：希望在套件列表按右鍵可以直接選擇「移除」或「安裝/重新安裝」。
+  3. 開發/測試需求：同一版本號測試時無法重複安裝（先前因 SemVer 比對相等即判定為 `Up to date` 而無操作入口）。
+- **解耦與修改方式 (Decoupling & How)**：
+  - 受影響檔案/函式：
+    - `src/updater/gui/frontend/src/components/VersionConfirmModal.vue`：
+      - 點擊確認後**立即關閉彈窗**（`showVersionModal = false`），設置 `activeOperation` 與 `isUpdating = true`，解除主視窗遮擋。
+      - 支援同版本號識別：同版時標題切換為 `Reinstall Package?`，內文提示先卸載再由 wheel 重新安裝。
+    - `src/updater/gui/frontend/src/components/UninstallConfirmModal.vue`：
+      - 新增專屬解除安裝確認彈窗，確認後立即關閉彈窗並呼叫 `pywebview.api.uninstall_package`。
+    - `src/updater/gui/frontend/src/components/PackageTable.vue`：
+      - 新增自訂右鍵選單（Context Menu），包含「安裝 / 重新安裝」與「移除 (Uninstall)」，點擊外部或 ESC 自動關閉。
+      - 新增套件列背景作業轉圈指示（`.spinner-mini` 與 `.row-operating` 呼吸效果），清楚顯示「安裝中...」、「重新安裝中...」或「移除中...」。
+    - `src/updater/core.py` (`uninstall_package`, `install_updates`)：
+      - 新增純函式 `uninstall_package(package_name, python_exe, on_progress)`，全離線執行 `pip uninstall -y --no-input`。
+      - `install_updates` 新增 `reinstall=True` 旗標支援，同版本重新安裝時亦會轉換為 `STATUS_VERSION_SPECIFIED` 進入安裝佇列。
+    - `src/updater/gui/app.py` (`Api.uninstall_package`)：
+      - 新增 `uninstall_package` 後端接口，透過執行緒鎖在背景執行，完成後通知前端 `window.onUninstallComplete`。
+      - `install_versioned_package` 呼叫 `install_updates` 時帶入 `reinstall=True`。
+    - `src/updater/gui/frontend/src/main.js`：
+      - 註冊 `window.onUninstallComplete` 與 `activeOperation` 狀態管理。
+- **驗證與測試 (Verification & Testing)**：
+  - `pytest tests/test_core.py`：27 個核心單元測試 100% 通過（含 `TestUninstallPackage` 與同版本 reinstall 測試）。
+  - `pytest tests/test_gui.py -k TestUninstallPackageGui`：2 個 GUI API 測試通過。
+  - `npm test -- --run`：6 個前端測試檔案、75 個 Vitest 測試案例 100% 通過。
+  - PyInstaller onedir 與 onefile 雙版本建置完成並放置於 `dist/`。
+- **結果 (Result)**：
+  - 徹底解決彈窗卡住的視覺痛點：確認後對話框立即消失，該列套件立即顯示藍色轉圈與動態狀態，右側 Console 能完整清晰看到每一步進度。
+  - 完整支援滑鼠右鍵「移除 (Uninstall)」與「安裝 / 重新安裝 (Reinstall)」。
+  - 完整支援同版本號 wheel 覆蓋重裝測試。
+
+
 ### [2026-11-02 14:15] 根除降版 Timeout 網路連線問題並新增分段診斷日誌
 
 - **對應意圖 (Intention)**：`docs/intention.md` [2026-11-02 14:10] 任務意圖：降版 Timeout 根因排查與分段診斷日誌強化

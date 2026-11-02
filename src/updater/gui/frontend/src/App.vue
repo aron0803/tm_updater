@@ -25,6 +25,7 @@
       </div>
     </div>
     <VersionConfirmModal />
+    <UninstallConfirmModal />
   </div>
 </template>
 
@@ -35,6 +36,7 @@ import TargetBar from './components/TargetBar.vue'
 import ActionPanel from './components/ActionPanel.vue'
 import LogConsole from './components/LogConsole.vue'
 import VersionConfirmModal from './components/VersionConfirmModal.vue'
+import UninstallConfirmModal from './components/UninstallConfirmModal.vue'
 
 const store = inject('store')
 

@@ -98,7 +98,7 @@ describe('VersionConfirmModal.vue', () => {
     expect(apiSpy).toHaveBeenCalledWith('test-pkg', '2.0.0')
   })
 
-  it('test_confirm_button_locks_modal_during_install', async () => {
+  it('test_confirm_button_dismisses_modal_immediately_and_sets_updating_state', async () => {
     store.showVersionModal = true
     store.pendingVersionInstall = { packageName: 'test-pkg', version: '2.0.0', installedVersion: '1.0.0' }
     store.isUpdating = false
@@ -114,7 +114,25 @@ describe('VersionConfirmModal.vue', () => {
     await wrapper.find('.btn-confirm').trigger('click')
 
     expect(store.isUpdating).toBe(true)
-    expect(store.showVersionModal).toBe(true)
+    // Modal must dismiss immediately per user requirement
+    expect(store.showVersionModal).toBe(false)
+    expect(store.activeOperation).toEqual({
+      packageName: 'test-pkg',
+      type: 'install',
+      version: '2.0.0',
+    })
+  })
+
+  it('test_reinstall_displays_reinstall_title_and_button', () => {
+    store.showVersionModal = true
+    store.pendingVersionInstall = { packageName: 'test-pkg', version: '1.0.0', installedVersion: '1.0.0' }
+
+    const wrapper = mount(VersionConfirmModal, {
+      global: { provide: { store } },
+    })
+
+    expect(wrapper.find('h2').text()).toContain('Reinstall Package?')
+    expect(wrapper.find('.btn-confirm').text()).toContain('Reinstall')
   })
 
   it('test_cancel_button_disabled_during_install', async () => {
