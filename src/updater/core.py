@@ -194,6 +194,7 @@ def install_whl(whl_path: Path, python_exe: Path) -> tuple[bool, str]:
                 "-m",
                 "pip",
                 "install",
+                "--no-index",
                 str(whl_path),
                 "--no-deps",
                 "--no-input",
@@ -256,6 +257,7 @@ def install_updates(
                     "pip",
                     "uninstall",
                     "-y",
+                    "--no-input",
                     ps.name,
                 ]
                 if on_progress:
@@ -407,43 +409,11 @@ def install_updates(
                         )
                     ok, err = install_whl(ps.whl_path, python_exe)
                 else:
-                    # Last resort: try PyPI
-                    install_cmd = [
-                        str(python_exe),
-                        "-m",
-                        "pip",
-                        "install",
-                        f"{ps.name}=={target_version}",
-                    ]
+                    msg = "未找到可用之本地 wheel 檔案或來源目錄，離線環境嚴禁連線外部 PyPI"
                     if on_progress:
-                        on_progress(
-                            "info",
-                            f"{ps.name}: [2/2 安裝版本] 無本地來源，自 PyPI 安裝 v{target_version}...",
-                        )
-                        on_progress(
-                            "debug",
-                            f"{ps.name}: [DEBUG] Installing from PyPI - cmd: {' '.join(install_cmd)}",
-                        )
-                    try:
-                        install_result = subprocess.run(
-                            install_cmd,
-                            capture_output=True,
-                            text=True,
-                            encoding="utf-8",
-                            timeout=120,
-                            **_get_subprocess_kwargs(),
-                        )
-                    except subprocess.TimeoutExpired:
-                        if on_progress:
-                            on_progress(
-                                "error",
-                                f"{ps.name}: [2/2 PyPI 安裝逾時] pip install 超過 120s 未回應（請檢查網路連線或 Proxy）",
-                            )
-                        failed += 1
-                        failures.append(f"{ps.name}: timeout")
-                        continue
-                    ok = install_result.returncode == 0
-                    err = (install_result.stderr or install_result.stdout) if not ok else ""
+                        on_progress("error", f"{ps.name}: [2/2 安裝失敗] {msg}")
+                    ok = False
+                    err = msg
         else:
             assert ps.whl_path is not None
             ok, err = install_whl(ps.whl_path, python_exe)
