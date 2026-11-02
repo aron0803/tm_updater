@@ -11,19 +11,20 @@
   - 舊程式將 uninstall 與 install 混在同一個 try-catch 中，且執行過程中沒有分段輸出 Log，導致逾時發生時無法判斷是在解除安裝還是安裝階段、亦無即時指令與耗時可供排查。
 - **解耦與修改方式 (Decoupling & How)**：
   - 受影響檔案/函式：
-    - `src/updater/core.py` (`install_updates`)：
-      1. 降版 `install_cmd` 強制加入 `--no-index`，保證 100% 只從本地/指定 wheel 來源目錄讀取，完全隔離外部網路連線。
-      2. 分離「[1/2 解除安裝]」與「[2/2 安裝版本]」兩大階段，各自計算耗時並獨立捕獲 `TimeoutExpired`。
-      3. 安裝前自動檢查 source_path 下是否包含匹配之 wheel 檔，並在 Log 顯式印出 wheel 檔名。
-      4. 解除安裝逾時時標註可能原因（如檔案被其它程式鎖定）。
+    - `src/updater/core.py` (`install_whl`, `install_updates`)：
+      1. 降版 `install_cmd` 強制加入 `--no-index --no-input`，完全隔絕外部 PyPI 連線。
+      2. 徹底移除 PyPI fallback 機制（「Last resort: try PyPI」）：若本地/指定目錄無相應版本之 wheel 檔案，直接阻斷並報錯 `未找到可用之本地 wheel 檔案或來源目錄，離線環境嚴禁連線外部 PyPI`，絕不對外發起任何連線嘗試。
+      3. 分離「[1/2 解除安裝]」與「[2/2 安裝版本]」兩大階段，各自計算耗時並獨立捕獲 `TimeoutExpired`。
+      4. 安裝前自動檢查 source_path 下是否包含匹配之 wheel 檔，並在 Log 顯式印出 wheel 檔名與確認狀態。
+      5. 解除安裝逾時時標註可能原因（如檔案被其它程式鎖定）。
     - `src/updater/gui/frontend/src/components/LogConsole.vue`：加入 `.log-warning` 與 `.log-debug` 樣式支援，使除錯日誌層次更分明。
 - **驗證與測試 (Verification & Testing)**：
-  - `pytest tests/test_core.py`：23 個測試案例 100% 通過（含先前因缺少 `--no-index` 而失敗的測試）。
+  - `pytest tests/test_core.py`：23 個測試案例 100% 通過（含離線 `--no-index` 契約測試）。
   - `npm test -- --run`：70 個前端 Vitest 單元測試 100% 通過。
-  - PyInstaller onedir 與 onefile 打包成功並同步更新至 `dist/`。
+  - PyInstaller onedir（`dist/pyinstaller/updater_gui/updater_gui.exe`）與 onefile（`dist/onefile/updater_gui.exe`）打包成功，建置僅需 ~18 秒。
 - **結果 (Result)**：
-  - 降版不再對外連線，解決了內網/離線環境下 pip 漫長等待 socket timeout 的根本問題。
-  - 降版流程中每個步驟（檢查 wheel、卸載、安裝、耗時）都有清楚 Log 顯示於 Console。
+  - 100% 杜絕任何對外連線（PyPI fallback 徹底移除），完全滿足產線嚴格離線與無對外網路環境之要求。
+  - 降版流程中每個步驟（檢查 wheel、卸載、安裝、耗時）都有清楚 Log 顯示於 Console，若逾時亦能精確指出階段與排查指引。
 
 
 ### [2026-10-30 17:58] 修復降版與指定版本 UI 安裝互動，強化 whls 自動偵測與 PyInstaller 快速建置
