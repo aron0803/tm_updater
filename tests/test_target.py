@@ -362,7 +362,7 @@ class TestPickSource:
         )
 
         assert source.origin == ORIGIN_BUILTIN
-        assert source.path == Path(_BUILTIN_SOURCE)
+        assert source.path == (exe_dir / _BUILTIN_SOURCE)
 
     def test_gui_override_beats_toml(self, tmp_path: Path) -> None:
         project = self._project(tmp_path)

@@ -1,5 +1,5 @@
 [updater]
-source = '\\pnt52\研發本部_技術服務處\技術服務處\DS-TA\Test_Matrix\packages'
+source = 'whls'
 packages = [
     "test-matrix",
     "scope_driver",

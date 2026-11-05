@@ -148,7 +148,7 @@ class TestTomlEncoding:
         toml_file = self._write_bytes(tmp_path, b"[updater\nsource = broken")
         cfg = load_config(toml_file)
         assert cfg.parse_error != ""
-        assert cfg.source.startswith(r"\\pnt52")  # built-in default survived
+        assert cfg.source == "packages"  # built-in default survived
 
     def test_undecodable_bytes_report_error_not_crash(self, tmp_path: Path) -> None:
         toml_file = self._write_bytes(tmp_path, b"[updater]\nsource = '\x81\x81'\n")

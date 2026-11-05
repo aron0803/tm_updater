@@ -2,6 +2,30 @@
 
 
 
+### [2026-11-05 14:00] 徹底斷開 PNT52 殘留引用與日誌錯誤，確保 100% 純本地離線運作
+
+- **對應意圖 (Intention)**：`docs/intention.md` [2026-11-05 13:55] 任務意圖：徹底清除 PNT52 殘留引用與日誌錯誤，保證純本地/離線運作
+- **對應規格 (Spec/Schema)**：`docs/specs/offline_source_decoupling_spec.md`
+- **修改原因 (Why)**：
+  1. 使用者反饋：在離線環境更新 whl 時，Log Console 中仍會看到 `Scanning source: \\pnt52\...`，懷疑系統仍在嘗試對外連線。
+  2. 根因 1（日誌誤用）：`app.py:_do_update` 在輸出掃描訊息時使用了原始未覆蓋的 `self._config.source`，而非執行期真正生效的 `self._source_path()`。
+  3. 根因 2（設定與內建寫死）：`updater.toml` 與 `config.py:_BUILTIN_SOURCE` 早期硬編碼了公司 PNT52 伺服器 UNC 路徑，當未明確指定 source 時會退回並觸發 Windows SMB 廣播探測導致 2~3 秒逾時與警示。
+- **解耦與修改方式 (Decoupling & How)**：
+  - 受影響檔案/函式：
+    - `src/updater/gui/app.py` (`_do_update`)：修正掃描日誌輸出為 `self._source_path()`，確保日誌與當前實際生效之本地來源 100% 一致。
+    - `src/updater/config.py` (`_BUILTIN_SOURCE`)：移除 `\\pnt52\...`，內建預設值改為本地目錄名稱 `"packages"`，徹底杜絕預設發起任何網路 UNC 探測。
+    - `updater.toml` / `src/updater/gui/updater.toml`：預設來源由 `\\pnt52\...` 改為本地 `"whls"`。
+    - `tests/test_config.py` / `tests/test_target.py`：配合 `_BUILTIN_SOURCE` 的本地化變更更新契約斷言。
+    - `dist/onefile/updater.toml` / `dist/pyinstaller/updater_gui/updater.toml`：同步更新為純本地設定。
+- **驗證與測試 (Verification & Testing)**：
+  - `pytest tests/test_config.py tests/test_target.py tests/test_core.py`：104 個單元測試 100% 通過。
+  - `npm test -- --run`：75 個 Vitest 前端測試 100% 通過。
+  - `Select-String` 靜態掃描確認 `dist/` 中的設定檔無任何 `pnt52` 字樣。
+  - PyInstaller 快速打包完成產出最新 onedir 與 onefile 執行檔。
+- **結果 (Result)**：
+  - 徹底斷開任何對 PNT52 伺服器的殘留引用與日誌顯示，系統在未連網的離線環境下 100% 純本機運作，不再有 SMB 探測逾時卡頓。
+
+
 ### [2026-11-02 14:40] 套件右鍵選單（移除/安裝/重新安裝）、對話框立即關閉與背景轉圈動態
 
 - **對應意圖 (Intention)**：`docs/intention.md` [2026-11-02 14:35] 任務意圖：對話框立即關閉與背景轉圈、套件右鍵選單（移除/安裝）及同版重新安裝

@@ -487,7 +487,7 @@ class Api:
             return
 
         print("[DEBUG] Starting update process (_do_update)...")
-        self._push_log("info", f"Scanning source: {self._config.source}")
+        self._push_log("info", f"Scanning source: {self._source_path()}")
         available = scan_packages(self._source_path())
 
         if not available:

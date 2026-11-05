@@ -139,3 +139,4 @@ async function confirmUninstall() {
   background: #b71c1c;
 }
 </style>
+

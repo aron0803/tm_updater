@@ -74,3 +74,4 @@ describe('UninstallConfirmModal.vue', () => {
     expect(window.pywebview.api.uninstall_package).toHaveBeenCalledWith('test-pkg')
   })
 })
+

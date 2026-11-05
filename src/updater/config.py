@@ -26,7 +26,7 @@ _BOM_ENCODINGS = (
     (b"\xef\xbb\xbf", "utf-8-sig"),
 )
 
-_BUILTIN_SOURCE = r"\\pnt52\研發本部_技術服務處\技術服務處\DS-TA\Test_Matrix\packages"
+_BUILTIN_SOURCE = "packages"
 
 _BUILTIN_PACKAGES = [
     "test-matrix",
