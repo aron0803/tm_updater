@@ -2,6 +2,31 @@
 
 
 
+### [2026-11-13 11:35] 整合 test_matrix 版本控制與 AI 流程體系、建置 Nuitka 獨立執行檔並準備發佈
+
+- **對應意圖 (Intention)**：對齊 `test_matrix` 專案之版本控制管理、AI 技能與發佈流程規範，並以 Nuitka 建置獨立發佈包
+- **對應規格 (Spec/Schema)**：`docs/git-management.md`, `docs/ReleaseRule.md`, `docs/IssueRule.md`
+- **修改原因 (Why)**：
+  - 專案需要與 `D:\4.git\test_matrix` 保持一致的 AI 工作流程、版本控制規範（Conventional Commits、Issue 規則、Release 流程）及技能庫。
+  - 需要透過 Nuitka 打包最新版 `updater_gui.exe` (GUI) 與 `updater.exe` (CLI) 並發布至 GitHub Release。
+- **修改方式 (How & What)**：
+  - 同步工作流與設定檔：
+    - 複製 `scripts/ai_skills/` (`hotfix.md`, `release.md`, `release-pyc.md`) 及 `scripts/sync_AI.ps1`
+    - 配置 `.claude/skills/`、`.agent/workflows/`、`.agents/skills/`
+    - 引入專案文件：`docs/git-management.md`、`docs/ReleaseRule.md`、`docs/IssueRule.md`
+    - 更新 `CLAUDE.md`、`CLAUDE_中文.md`、`AGENTS.md`
+    - 更新發布說明：`docs/RELEASE_NOTES.md` 與 `docs/RELEASE_NOTES_ZH.md`（加入 v1.5.2）
+  - 編譯與構建：
+    - 建置前端資源：`src/updater/gui/frontend` 執行 `npm run build`
+    - 執行 `scripts/build_gui.bat`（Nuitka standalone 打包 GUI 執行檔至 `dist/updater_gui.dist` 與 `dist/updater_gui.zip`）
+    - 執行 `scripts/build_updater.bat`（Nuitka standalone 打包 CLI 執行檔至 `dist/updater.dist` 與 `dist/updater.zip`）
+- **驗證與測試 (Verification & Testing)**：
+  - Nuitka 編譯輸出檢查：`dist/updater_gui.zip` 與 `dist/updater.zip` 成功生成且結構完整。
+  - 前端編譯成功：Vite build 產出 assets / index.html。
+- **結果 (Result)**：
+  - 完整移植 `test_matrix` 之版本控制規範與 AI skills，成功建置 Nuitka 執行檔並準備發佈。
+
+
 ### [2026-11-05 14:00] 徹底斷開 PNT52 殘留引用與日誌錯誤，確保 100% 純本地離線運作
 
 - **對應意圖 (Intention)**：`docs/intention.md` [2026-11-05 13:55] 任務意圖：徹底清除 PNT52 殘留引用與日誌錯誤，保證純本地/離線運作

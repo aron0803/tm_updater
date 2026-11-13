@@ -1,3 +1,20 @@
+# Release Notes - Updater v1.5.2 (Latest)
+
+## Summary
+
+Test Matrix Updater v1.5.2 provides a standalone GUI and CLI package manager with complete offline support, dynamic target/source configuration via TOML, right-click package operations, and Nuitka binary distribution.
+
+## What's New
+
+### Features & Improvements
+- **Decoupled Offline Operation**: Completely eliminated hardcoded network share references; fully supports 100% offline local wheel directories.
+- **TOML Runtime State**: GUI configuration state saved in `updater_state.toml` for transparency and readability.
+- **Package Context Menu**: Right-click actions for packages (Install, Reinstall, Uninstall) with instant modal response and in-row loading spinner.
+- **Dynamic Source & Target Resolution**: Easily point to target project folder and packages source at runtime.
+- **Nuitka Binary Distribution**: Pre-compiled standalone Windows executables (`updater_gui.zip` and `updater.zip`).
+
+---
+
 # Release Notes - Updater v1.4.0
 
 ## Summary
